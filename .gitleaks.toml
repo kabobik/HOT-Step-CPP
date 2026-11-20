@@ -1,0 +1,10 @@
+title = "HOT-Step Bobik source"
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public YuE2 parameter keys in the replay capability fixture"
+condition = "AND"
+paths = ['''^ui/src/utils/capabilities\.json$''']
+regexTarget = "secret"
+regexes = ['''^yue2[A-Za-z0-9]+$''']
