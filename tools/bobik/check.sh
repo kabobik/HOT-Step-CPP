@@ -12,6 +12,7 @@ python3 tools/bobik/check_ranges.py
     src/services/backends/yue2/generate.test.ts \
     src/services/backends/yue2/pick.test.ts \
     src/services/backends/yue2/durationCap.test.ts \
+    ../ui/src/stores/globalParamsStore.officialSeed.test.ts \
     ../ui/src/components/library/songBadges.test.ts \
     ../ui/src/components/details/songFacts.test.ts \
     ../ui/src/stores/playbackStore.mediaSession.test.ts

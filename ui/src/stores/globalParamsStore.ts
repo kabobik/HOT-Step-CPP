@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS, type AppSettings } from '../components/settings/Setti
 import { useBackendStore } from './backendStore';
 import { normalizeSeed, type Seed } from '../utils/seed';
 
-const STRING_SEED_BACKENDS = new Set(['heartmula', 'yue2']);
+const STRING_SEED_BACKENDS = new Set(['heartmula', 'yue2', 'minimax-official']);
 import { apiClient } from '../services/httpClient';
 
 // -- Types --
