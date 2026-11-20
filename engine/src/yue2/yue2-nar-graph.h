@@ -113,7 +113,7 @@
 // 28 layers x ~25 nodes (concat/cast/rope/norm/matmul per layer, no
 // adapter/CFG/cache-write branching) + input-embedding plumbing + output
 // head. Same loose budget posture as YUE2_LM_MAX_NODES.
-#define YUE2_NAR_MAX_NODES 4096
+#define YUE2_NAR_MAX_NODES 32768
 
 // ── Per-chunk state: the AR-prefix KV cache, reused across all 64 velocity
 //    evaluations of that chunk's ODE solve ──────────────────────────────────

@@ -179,6 +179,16 @@ static bool yue2_read_f32_file(const std::string & path, std::vector<float> * ou
 static std::vector<std::pair<int64_t, int64_t>> yue2_chunk_ranges(int64_t frames, int64_t prefix_tokens,
                                                                    int64_t context, int64_t cap = 0) {
     std::vector<std::pair<int64_t, int64_t>> out;
+    // Bobik: explicitly opted-in long-song rendering. AR context and
+    // model metadata remain unchanged. Only the NAR attention window grows.
+    // 15000 frames fit the checkpoint's 24576 learned latent positions, but
+    // the combined AR+NAR RoPE span exceeds its native context: experimental.
+    const char * ram_window = std::getenv("BOBIK_YUE2_NAR_MAX_SECONDS");
+    if (ram_window && std::strcmp(ram_window, "600") == 0) {
+        constexpr int64_t max_frames = 600 * 25;
+        context = std::max(context, prefix_tokens + 2 * max_frames + 3);
+        if (cap <= 0 || cap > max_frames) cap = max_frames;
+    }
     int64_t                                   size = (context - prefix_tokens - 3) / 2;
     if (size < 1 || frames <= 0) {
         return out;

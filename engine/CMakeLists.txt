@@ -896,6 +896,8 @@ target_link_libraries(mastering PRIVATE Threads::Threads)
 # own CMakeLists.txt because it requires cmake 3.25+ and pulls in the full
 # build system including plugin examples and VSTGUI.
 
+option(HOT_STEP_BUILD_VST_HOST "Build standalone VST host" ON)
+if(HOT_STEP_BUILD_VST_HOST)
 set(VST3SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/vendor/vst3sdk")
 
 # Static library: vst3-hosting
@@ -1018,6 +1020,8 @@ add_dependencies(vst-host version)
 if(APPLE)
     target_link_libraries(vst-host PRIVATE ${COCOA_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
 endif()
+
+endif() # HOT_STEP_BUILD_VST_HOST
 
 # Monitor chain unit test (no VST plugins needed). Off by default so it is not
 # part of the ALL build; configure with -DBUILD_TESTING=ON to build and run it.

@@ -92,7 +92,7 @@
 // 28 layers x ~20 nodes (no adapter/CFG-batch/fold-rows branching to inflate
 // it) + up to 30 hidden-tap gathers + embed/head-gather/logits plumbing.
 // Loose on purpose, same posture as MM3_LM_MAX_NODES.
-#define YUE2_LM_MAX_NODES 4096
+#define YUE2_LM_MAX_NODES 32768
 
 struct Yue2ArStepProfile {
     int64_t calls = 0;
@@ -192,6 +192,25 @@ static ggml_tensor * yue2_lm_attn_f32(ggml_context * ctx, ggml_tensor * q, ggml_
     if (k->type != GGML_TYPE_F16 && k->type != GGML_TYPE_F32) {
         k = ggml_cast(ctx, k, GGML_TYPE_F32);
         v = ggml_cast(ctx, v, GGML_TYPE_F32);
+    }
+    const char * query_tile = std::getenv("BOBIK_YUE2_ATTN_QUERY_TILE");
+    if (query_tile && std::strcmp(query_tile, "1024") == 0 && q->ne[1] > 1024) {
+        ggml_tensor * vt = ggml_cont(ctx, ggml_transpose(ctx, v));
+        ggml_tensor * joined = nullptr;
+        for (int64_t start = 0; start < q->ne[1]; start += 1024) {
+            const int64_t count = std::min<int64_t>(1024, q->ne[1] - start);
+            ggml_tensor * qt = ggml_view_4d(ctx, q, q->ne[0], count, q->ne[2], q->ne[3],
+                q->nb[1], q->nb[2], q->nb[3], (size_t) start * q->nb[1]);
+            ggml_tensor * mt = mask ? ggml_view_4d(ctx, mask, mask->ne[0], count,
+                mask->ne[2], mask->ne[3], mask->nb[1], mask->nb[2], mask->nb[3],
+                (size_t) start * mask->nb[1]) : nullptr;
+            ggml_tensor * scores = ggml_mul_mat(ctx, k, qt);
+            scores = ggml_soft_max_ext(ctx, scores, mt, scale, 0.0f);
+            ggml_tensor * out = ggml_mul_mat(ctx, vt, scores);
+            out = ggml_cont(ctx, ggml_permute(ctx, out, 0, 2, 1, 3));
+            joined = joined ? ggml_concat(ctx, joined, out, 2) : out;
+        }
+        return joined;
     }
     ggml_tensor * scores = ggml_mul_mat(ctx, k, q);                     // [n_kv, T, Nh, 1]
     scores               = ggml_soft_max_ext(ctx, scores, mask, scale, 0.0f);
