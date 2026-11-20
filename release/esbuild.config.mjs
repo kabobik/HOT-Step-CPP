@@ -14,6 +14,7 @@
 // - model-registry.json loaded via fs.readFileSync (not bundled inline)
 
 import esbuild from 'esbuild';
+import { rmSync } from 'node:fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { builtinModules } from 'module';
@@ -27,6 +28,8 @@ const nodeExternals = [
   ...builtinModules.map(m => `node:${m}`),
 ];
 
+// Keep repeated source builds free of obsolete hashed chunks.
+rmSync(path.join(projectRoot, 'release/staging/server/chunks'), { recursive: true, force: true });
 const result = await esbuild.build({
   entryPoints: {
     server: path.join(projectRoot, 'server/src/index.ts'),
