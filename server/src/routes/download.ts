@@ -158,6 +158,8 @@ function deliver(
   res: Response, save: boolean, filePath: string, filename: string, mime: string,
   tempFile?: string, sidecarLrc?: string,
 ): void {
+  // Preserve Unicode, but exclude filesystem separators and control characters.
+  filename = filename.replace(/[<>:"\/\\|?*\u0000-\u001f\u007f]/g, '').trim();
   const cleanup = () => {
     if (!tempFile) return;
     try { fs.unlinkSync(tempFile); } catch {}
@@ -179,8 +181,9 @@ function deliver(
     } finally { cleanup(); }
     return;
   }
+  // Express encodes Unicode filenames using RFC 5987 filename*.
+  res.attachment(filename);
   res.setHeader('Content-Type', mime);
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', fs.statSync(filePath).size);
   const stream = fs.createReadStream(filePath);
   stream.pipe(res);
@@ -263,7 +266,7 @@ const downloadHandler = (save: boolean) => async (req: Request, res: Response) =
       return;
     }
     const rawTitle = song.title || 'track';
-    const downloadName = `${rawTitle.replace(/[^a-zA-Z0-9 _()-]/g, '').trim() || 'track'}.latent`;
+    const downloadName = `${rawTitle.replace(/[<>:"\/\\|?*\u0000-\u001f\u007f]/g, '').trim() || 'track'}.latent`;
     deliver(res, save, latentPath, downloadName, 'application/octet-stream');
     return;
   }
@@ -324,7 +327,7 @@ const downloadHandler = (save: boolean) => async (req: Request, res: Response) =
   const songTitle = (song.title || 'Untitled')
     .replace(badPrefixes, '')
     .replace(/_mastered/g, '')
-    .replace(/[^a-zA-Z0-9 _()-]/g, '')
+    .replace(/[<>:"\/\\|?*\u0000-\u001f\u007f]/g, '')
     .trim();
 
   const suffix = versionSuffix(version);
@@ -332,7 +335,7 @@ const downloadHandler = (save: boolean) => async (req: Request, res: Response) =
   // covering band is recorded as artistName).
   const gp = generationParams(song);
   const savedArtist = [gp.artist, gp.artistName, song.artist].find(v => typeof v === 'string' && v.trim()) as string | undefined;
-  const resolvedArtist = artistName || (savedArtist || '').replace(badPrefixes, '').replace(/[^a-zA-Z0-9 _()-]/g, '').trim();
+  const resolvedArtist = artistName || (savedArtist || '').replace(badPrefixes, '').replace(/[<>:"\/\\|?*\u0000-\u001f\u007f]/g, '').trim();
 
   // Strip leading "Artist - " prefix from title if it duplicates the resolved artist.
   // generate.ts stores titles as "Artist - Song Title", so without this the artist
@@ -402,7 +405,7 @@ function savedArtistFor(song: any): string {
   const gp = generationParams(song);
   const saved = [gp.artist, gp.artistName, song?.artist]
     .find(v => typeof v === 'string' && v.trim()) as string | undefined;
-  return (saved || '').replace(TRACK_PREFIXES, '').replace(/[^a-zA-Z0-9 _()-]/g, '').trim();
+  return (saved || '').replace(TRACK_PREFIXES, '').replace(/[<>:"\/\\|?*\u0000-\u001f\u007f]/g, '').trim();
 }
 
 /**
@@ -414,7 +417,7 @@ function lrcNameStem(song: any, audioUrl: string, artistName: string, prepend: s
   const rawTitle = song?.title || path.basename(audioUrl || '').replace(/\.[^.]+$/, '') || 'track';
   const title = stripArtistPrefix(
     rawTitle.replace(TRACK_PREFIXES, '').replace(/_mastered/g, '')
-      .replace(/[^a-zA-Z0-9 _()-]/g, '').trim() || 'track',
+      .replace(/[<>:"\/\\|?*\u0000-\u001f\u007f]/g, '').trim() || 'track',
     artist,
   );
   return [prepend, artist, title].filter(Boolean).join(' - ');
