@@ -135,7 +135,7 @@ export function yue2TrackReplayParams(
 }
 
 /** Mirrors the capability manifest's core.duration (max 360, auto: true). */
-const YUE2_MAX_DURATION_SEC = 360;
+const YUE2_MAX_DURATION_SEC = 600;
 
 const DETAIL_POLL_MS = 1_500;
 
@@ -554,7 +554,7 @@ export function mapYue2Params(params: any, pick: Yue2PersistedSelection = yue2Re
     : undefined;
 
   // UI slider (index.ts's yue2NarChunkSeconds extension): 0 = one chunk.
-  const chunkRaw = Number(params.yue2NarChunkSeconds);
+  const chunkRaw = Number(params.yue2NarChunkSeconds ?? 600);
   const nar_chunk_frames = Number.isFinite(chunkRaw) && chunkRaw > 0 ? Math.round(Math.min(chunkRaw, 600) * 25) : undefined;
 
   // From the job's pick (#204): the model picker's VAE, captured at submit.
@@ -641,8 +641,8 @@ export function mapYue2Params(params: any, pick: Yue2PersistedSelection = yue2Re
   // is unchanged. The engine's caps come from /yue2/props via the manifest;
   // clamp here too so a stale UI cannot 400 the request.
   const propsNow = yue2PropsCached();
-  const maxSongs = Math.max(1, Number(propsNow?.max_lm_batch) || 1);
-  const maxVars = Math.max(1, Number(propsNow?.max_synth_batch) || 1);
+  const maxSongs = 2; // Bobik: preserve the configured two-song batch.
+  const maxVars = 1; // RAM profile: one acoustic variation.
   // yue2BatchSize is the YuE2 panel's own control; batchSize is the ACE
   // Generation dropdown's, kept as a fallback for API callers.
   const askedSongs = Math.max(1, Math.round(Number(params.yue2BatchSize ?? params.batchSize) || 1));
@@ -655,6 +655,7 @@ export function mapYue2Params(params: any, pick: Yue2PersistedSelection = yue2Re
   const noise_seed = yue2Seed(typeof noiseSeedRaw === 'number' ? Math.floor(noiseSeedRaw) : noiseSeedRaw);
 
   const lmOverrides = yue2LmOverrides(params, notes);
+  lmOverrides.semantic_max_tokens = Math.min(lmOverrides.semantic_max_tokens ?? 15000, 15000);
   if (Object.keys(lmOverrides).length) notes.push(`LM overrides: ${Object.entries(lmOverrides).map(([k, v]) => `${k}=${v}`).join(', ')}`);
 
   const req: Yue2SynthRequest = {
@@ -1126,14 +1127,14 @@ export async function runYue2Generation(job: GenerationJob, deps: Yue2Generation
     return;
   }
   const { log } = lead;
-  const timeoutMinutes: number | undefined = job.params.generationTimeoutMinutes;
+  const timeoutMinutes = Math.max(job.params.generationTimeoutMinutes ?? 30, Number(process.env.BOBIK_YUE2_TIMEOUT_MINUTES) || 30);
 
   // ── Coalesce ──
   const members: Yue2PreparedJob[] = [lead];
   // The ceiling comes from the engine manifest; after a server restart nothing
   // may have fetched it yet, and a missing manifest must not read as "1".
   const props = yue2PropsCached() ?? (await yue2Props()).props;
-  const maxSongs = Math.max(1, Number(props?.max_lm_batch) || 1);
+  const maxSongs = 2; // At most two songs per combined batch.
   let songsSoFar = Math.max(1, lead.req.lm_batch_size ?? 1);
   if (!lead.req.codec_ids?.length && job.params.yue2Coalesce !== false && deps.pendingJobs && songsSoFar < maxSongs && (job.status as string) !== 'cancelled') {
     const key = yue2CoalesceKey(job, lead.req);
@@ -1337,7 +1338,7 @@ export async function runYue2Generation(job: GenerationJob, deps: Yue2Generation
     try {
       await deps.pollUntilDone(sub.job_id, pollView, deps.signal, timeoutMinutes, {
         // No chunk cap means the engine can render the full 360 s song at 25 fps.
-        narChunkFrames: req.nar_chunk_frames || 9000,
+        narChunkFrames: req.nar_chunk_frames || 15000,
         // Decode and output can stay silent while processing a whole batch.
         // Keep the wall-clock deadline, rather than cancelling at 15 minutes.
         quietCompletionPhases: ['vae_decode', 'vae', 'encoding_output'],

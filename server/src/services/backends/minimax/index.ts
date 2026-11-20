@@ -572,7 +572,7 @@ async function capabilities(): Promise<BackendCapabilities> {
         type: 'slider',
         label: 'Variations Per Render',
         min: 1,
-        max: 4,
+        max: 1,
         step: 1,
         hint: 'Render several DIFFERENT songs from one prompt in a single pass, each '
             + 'from its own seed. The planner is shared, so the extra takes are close '
@@ -617,7 +617,7 @@ async function capabilities(): Promise<BackendCapabilities> {
             + 'the ceiling, then renders the longest plan anyway. Costs up to 12 '
             + 'planning passes when nothing ends, so turn it off if your adapter '
             + 'writes songs longer than the Duration you asked for.',
-        default: true,
+        default: false,
       },
       {
         // ── Minimum length ──

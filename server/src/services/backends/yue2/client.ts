@@ -481,6 +481,9 @@ export async function yue2Props(timeoutMs = TIMEOUT_PROPS): Promise<Yue2PropsRes
     const res = await fetch(`${base()}/yue2/props`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) throw new Error(await yue2ErrorMessage(res, 'GET /yue2/props'));
     const props = await res.json() as Yue2Props;
+    const cap = (v: unknown) => Number.isFinite(Number(v)) ? Math.min(2, Math.max(1, Math.floor(Number(v)))) : 1;
+    props.max_plan_batch = cap(props.max_plan_batch ?? props.max_lm_batch);
+    props.max_lm_batch = cap(props.max_lm_batch);
     lastGoodProps = props;
     lastGoodAt = Date.now();
     return { props, stale: false, fetchedAt: lastGoodAt };

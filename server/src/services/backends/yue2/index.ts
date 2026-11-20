@@ -56,7 +56,7 @@ import type { GenerationJob } from '../../generation/jobTypes.js';
 /** Mirrors capabilities().core.duration.max — the plan/semantic stages end on
  *  their own terminator; this is the honest v1 ceiling (§7 request fields:
  *  "duration ... max: 360, auto: true"). */
-const YUE2_MAX_DURATION_SEC = 360;
+const YUE2_MAX_DURATION_SEC = 600;
 
 /** CC BY-NC 4.0, with the authors' individual-use carve-out. See the header
  *  note above and the Model Manager entry for the same text. */
@@ -137,7 +137,7 @@ export function yue2LmVariant(type: string): string {
 /** The variant an adapter was trained on, from its base_sha (the training LM's
  *  path). An adapter recording none predates the variants: the base model. */
 export function yue2AdapterHome(baseSha: string | undefined): string {
-  const m = /^yue2-lm-(.+)\.gguf$/i.exec(path.basename(baseSha ?? ''));
+  const m = /^yue2-lm-(.+)\.gguf$/i.exec(path.basename((baseSha ?? '').replace(/\\/g, '/')));
   return m ? yue2LmVariant(m[1]) : '';
 }
 
@@ -585,7 +585,7 @@ async function capabilities(): Promise<BackendCapabilities> {
       negativePrompt: false,
       // Songs per request; the engine decodes them in lockstep (doc 30 #6).
       // Older engines never report the cap and render one track.
-      batch: { max: Math.max(1, Number(props?.max_lm_batch) || 1) },
+      batch: { max: 2 },
       seed: true,
       captionFormat: 'freeform',
       captionSource: 'yue2-dataset',
@@ -711,9 +711,8 @@ async function capabilities(): Promise<BackendCapabilities> {
       },
       {
         key: 'yue2SemMaxTokens', group: 'lm', section: 'Composer (song)', type: 'slider', label: 'Composer Max Frames',
-        hint: 'Cap on the song in codec frames (25 per second; 9000 = 6 min). A render that hits it '
-            + `reports limit_hit. Checkpoint: ${sd('semantic', 'max_tokens', 9000)}.`,
-        default: sd('semantic', 'max_tokens', 9000), min: 200, max: 9000, step: 100,
+        hint: 'Maximum song length in frames: 25 per second, 15000 = 10 minutes. A song may end earlier; reaching the cap reports limit_hit.',
+        default: 15000, min: 200, max: 15000, step: 100,
       },
       {
         key: 'yue2SemMinP', group: 'lm', section: 'Composer (song)', type: 'slider', label: 'Composer Min-P',
@@ -979,9 +978,9 @@ async function capabilities(): Promise<BackendCapabilities> {
         label: 'Batch Size',
         hint: 'Songs per render, each with its own plan, seed (seed + i) and lyrics take, composed '
             + 'together in one pass. Multiplies with Noise Variations: songs x variations tracks.',
-        default: 1,
+        default: 2,
         min: 1,
-        max: Math.max(1, Number(props?.max_lm_batch) || 1),
+        max: 2,
         step: 1,
       },
       {
@@ -993,7 +992,7 @@ async function capabilities(): Promise<BackendCapabilities> {
             + 'seed it used. Multiplies with Batch Size: songs x variations tracks.',
         default: 1,
         min: 1,
-        max: Math.max(1, Number(props?.max_synth_batch) || 1),
+        max: 1,
         step: 1,
       },
       {
@@ -1015,13 +1014,10 @@ async function capabilities(): Promise<BackendCapabilities> {
         key: 'yue2NarChunkSeconds',
         type: 'slider',
         label: 'NAR Chunk Length (s)',
-        hint: '0 = the reference: the decoder renders the whole song in one pass. Above 0, it renders '
-            + 'chunks of at most this many seconds, each seeing the prompt and its own codes, as it was '
-            + 'trained (adapter decoders train on 60 s crops). Aimed at late-song timbre drift with '
-            + 'adapters. Chunk joins are hard cuts; listen for seams. Untested by ear.',
-        default: 0,
+        hint: 'Up to 600 seconds in one render on Bobik. Smaller blocks can create audible joins. Longer renders may take more time.',
+        default: 600,
         min: 0,
-        max: 300,
+        max: 600,
         step: 10,
       },
       {

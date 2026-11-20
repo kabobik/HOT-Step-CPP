@@ -95,7 +95,7 @@ const MM3_MAX_DURATION_SEC = 300;
 // pays and the flow stage (which is NOT shared) stays affordable; 4 rounds
 // because each round is one more batched AR pass and a prompt that cannot end
 // in twelve attempts is a prompt problem, not a luck problem.
-const MM3_ENDING_TAKES  = 3;
+const MM3_ENDING_TAKES  = 1;
 const MM3_ENDING_ROUNDS = 4;
 
 // ── Minimum length (mm3MinLength) ────────────────────────────────────────────
@@ -163,7 +163,7 @@ function mm3MinDurationSec(lyrics: string): number {
 }
 /** Engine ceiling on `takes` (ggml amortises a quantised weight read across at
  *  most 8 mat-vec columns, and a CFG pair costs two). */
-const MM3_MAX_TAKES = 8;
+const MM3_MAX_TAKES = 1;
 
 // ── Low-step schedule compensation ───────────────────────────────────────────
 //
@@ -543,7 +543,7 @@ export function mapMinimaxParams(params: any): MinimaxParamMapping {
     notes.push(plankCodes ? 'Source guide ignored: a plank is loaded and the engine takes one or the other'
       : `Source guide ignored: ${params.mm3GuidePath} is not inside the plank folder`);
   }
-  const requireEnding = !plankCodes && !guidePath && !a2aSource && params.mm3RequireEnding !== false;
+  const requireEnding = !plankCodes && !guidePath && !a2aSource && params.mm3RequireEnding === true;
   const askedTakes = !plankCodes && !guidePath && Number(params.mm3Takes) > 1
     ? Math.min(MM3_MAX_TAKES, Math.max(1, Math.round(Number(params.mm3Takes))))
     : 1;

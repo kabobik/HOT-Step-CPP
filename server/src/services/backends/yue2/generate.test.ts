@@ -417,16 +417,20 @@ test('inline YuE2 renders hold the lane until completion; eligible renders hand 
         let finish!: () => void;
         const rendering = new Promise<void>(resolve => { finish = resolve; });
         let lease!: Parameters<typeof lane.releaseGpuLane>[0];
-        const first = lane.runOnWorkerLane(async held => { lease = held; await rendering; }, { family: 'yue2' });
+        let firstReady!: () => void;
+        const started = new Promise<void>(resolve => { firstReady = resolve; });
+        const first = lane.runOnWorkerLane(async held => { lease = held; firstReady(); await rendering; }, { family: 'yue2' });
         let secondStarted = false;
-        const second = lane.runOnWorkerLane(async () => { secondStarted = true; }, { family: 'yue2' });
-        await Promise.resolve();
+        let secondReady!: () => void;
+        const nextStarted = new Promise<void>(resolve => { secondReady = resolve; });
+        const second = lane.runOnWorkerLane(async () => { secondStarted = true; secondReady(); }, { family: 'yue2' });
+        await started;
         let releases = 0;
         const released = releaseYue2RenderLane(req, phase, {
           releaseLane: () => { releases++; return lane.releaseGpuLane(lease); },
           nextLaneFamily: lane.gpuLaneNextFamily,
         });
-        await Promise.resolve();
+        if (expected) await nextStarted;
         try {
           const label = JSON.stringify({ keepLoaded, params, phase });
           assert.equal(released, expected, label);
@@ -461,4 +465,14 @@ test('YuE2 handoff waits for other families and tolerates absent callbacks', asy
       releaseLane: () => false, nextLaneFamily: () => 'yue2',
     }), false);
   } finally { config.aceServer.keepLoaded = saved; }
+});
+
+
+test('Bobik RAM defaults cap frames at 600 seconds and batch at two songs', () => {
+  const { req } = mapYue2Params({ caption: 'folk', lyrics,
+    yue2SemMaxTokens: 99999, yue2BatchSize: 8, batchSize: 8, yue2Variations: 8 }, pick);
+  assert.equal(req.nar_chunk_frames, 15000);
+  assert.equal(req.semantic_max_tokens, 15000);
+  assert.equal(req.lm_batch_size, 2);
+  assert.equal(req.synth_batch_size ?? 1, 1);
 });

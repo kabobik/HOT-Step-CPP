@@ -1,3 +1,4 @@
+import { bobikWithActivity } from '../../bobik/integration.js';
 // The GPU lane: who may drive the engine(s), including while reset work drains.
 //
 // Two kinds of reservation share one FIFO queue:
@@ -188,7 +189,7 @@ function enqueue<T>(fn: (lease: LaneLease) => Promise<T>, task: Omit<Pending, 's
           // pump() runs in whichever lease just finished; start from no worker
           // scope, so an exclusive task means the primary and a worker lease binds cleanly.
           const run = () => leaseScope.run(lease, () => fn(lease));
-          return engineWorkerScope.exit(() => lease.worker ? runWithWorker(lease.worker, run) : run());
+          return bobikWithActivity(() => engineWorkerScope.exit(() => lease.worker ? runWithWorker(lease.worker, run) : run()));
         }).then(
           value => finish(lease, () => resolve(value)),
           error => finish(lease, () => reject(error)),
