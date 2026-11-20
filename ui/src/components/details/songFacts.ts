@@ -12,7 +12,7 @@ import type { Song } from '../../types';
 import { formatDitModel, formatLmModel } from '../global-bar/modelLabels';
 import { seedText } from '../../utils/seed';
 
-export type Backend = 'ace' | 'minimax-m3' | 'yue2' | 'sa3';
+export type Backend = 'ace' | 'minimax-m3' | 'minimax-official' | 'yue2' | 'sa3';
 
 export interface Fact {
   label: string;
@@ -33,6 +33,7 @@ export interface FactGroup {
 export const BACKEND_LABELS: Record<Backend, string> = {
   'ace': 'ACE-Step 1.5',
   'minimax-m3': 'MiniMax-Music3',
+  'minimax-official': 'MiniMax-Music3 · Official',
   'yue2': 'YuE2',
   'sa3': 'Stable Audio 3',
 };
@@ -41,6 +42,7 @@ export function songBackend(song: Song): Backend {
   const gp = params(song);
   const raw = String(song.backend || gp?.backend || 'ace');
   if (raw === 'minimax-m3' || raw === 'mm3' || raw === 'minimax') return 'minimax-m3';
+  if (raw === 'minimax-official') return 'minimax-official';
   if (raw === 'yue2') return 'yue2';
   if (raw === 'sa3' || raw === 'stable-audio-3') return 'sa3';
   return 'ace';
@@ -430,6 +432,18 @@ export function buildFactGroups(song: Song): FactGroup[] {
   const cover = coverFacts(gp, backend);
   let groups: FactGroup[];
   switch (backend) {
+    case 'minimax-official': {
+      const result = gp.mm3OfficialResult || {};
+      const request = gp.mm3OfficialRequest || {};
+      const facts: Fact[] = [];
+      add(facts, 'Weights', String(result.precision || '').toUpperCase());
+      add(facts, 'Flow steps', num(request.steps ?? gp.mm3OfficialSteps));
+      add(facts, 'Seed', num(request.seed ?? gp.seed), { mono: true });
+      add(facts, 'Measured length', formatDuration(result.duration));
+      if (result.total_ms) add(facts, 'Generation time', formatDuration(result.total_ms / 1000));
+      groups = facts.length ? [{ title: 'Official MiniMax-Music3', facts }] : [];
+      break;
+    }
     case 'minimax-m3': groups = mm3Facts(gp); break;
     case 'yue2': groups = yue2Facts(gp); break;
     case 'sa3': groups = sa3Facts(gp); break;

@@ -41,3 +41,9 @@ test('MM3 and SA3 use their own request values, including zero and unity', () =>
   assert.deepEqual(buildSongBadges(song('sa3', { guidanceScale: 99,
     sa3Request: { guidanceScale: 0, solver: 'euler' } })), [{ label: 'cfg', value: '0' }, { label: 'solver', value: 'Euler' }]);
 });
+
+test('official MiniMax never displays stale ACE sampling settings', () => {
+  const s = song('minimax-official', { guidanceScale: 99, inferMethod: 'stale', ditModel: 'ace-Q4.gguf',
+    mm3OfficialResult: { precision: 'fp16' } });
+  assert.deepEqual(buildSongBadges(s), [{ label: 'quant', value: 'FP16' }]);
+});

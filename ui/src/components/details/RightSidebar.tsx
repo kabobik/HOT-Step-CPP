@@ -35,6 +35,7 @@ interface RightSidebarProps {
 /** Per-backend accent, so the chip is recognisable at a glance. */
 const BACKEND_CHIP: Record<string, string> = {
   'ace': 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/30',
+  'minimax-official': 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30',
   'minimax-m3': 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30',
   'yue2': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
   'sa3': 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',

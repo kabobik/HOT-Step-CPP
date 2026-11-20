@@ -8,6 +8,7 @@
 
 import { getSetting, setSetting } from '../../db/lireekDb.js';
 import type { EngineBackend } from './types.js';
+import { minimaxOfficialBackend } from './minimaxOfficial/index.js';
 import { aceBackend } from './ace/index.js';
 import { minimaxBackend } from './minimax/index.js';
 import { yue2Backend } from './yue2/index.js';
@@ -23,6 +24,7 @@ const DEFAULT_BACKEND_ID = 'ace';
 const backends: Record<string, EngineBackend> = {
   ace: aceBackend,
   'minimax-m3': minimaxBackend,
+  ...(process.env.BOBIK_MM3_OFFICIAL_URL ? { 'minimax-official': minimaxOfficialBackend } : {}),
   yue2: yue2Backend,
   // HOT-Step: Stable Audio 3 as a primary backend (backends/sa3/). Last in
   // the toggle, after the two it does not change.

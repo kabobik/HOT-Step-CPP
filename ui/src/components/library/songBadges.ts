@@ -36,6 +36,9 @@ export function buildSongBadges(song: Song): SongBadge[] {
       if (gp.yue2Adapters?.ar?.path) add('ar', gp.yue2Adapters.ar.scales?.global);
       add('vae', pretty(gp.yue2?.vae_variant ?? gp.yue2Request?.vae_variant ?? gp.yue2VaeVariant));
       break;
+    case 'minimax-official':
+      add('quant', gp.mm3OfficialResult?.precision?.toUpperCase());
+      break;
     case 'minimax-m3':
       add('cfg', gp.mm3?.cfg_flow ?? gp.mm3Request?.cfg_flow);
       if (gp.mm3LmAdapter) add('scale', gp.mm3LmAdapterScale);

@@ -8,9 +8,12 @@ python3 tools/bobik/check_ranges.py
   cd server
   export BOBIK_ACTIVITY_LEASE_SCRIPT="$root_dir/server/src/bobik/fake_activity_lease.py"
   node --import tsx --test src/bobik/*.test.ts \
+    src/services/backends/minimaxOfficial/official.test.ts \
     src/services/backends/yue2/generate.test.ts \
     src/services/backends/yue2/pick.test.ts \
     src/services/backends/yue2/durationCap.test.ts \
+    ../ui/src/components/library/songBadges.test.ts \
+    ../ui/src/components/details/songFacts.test.ts \
     ../ui/src/stores/playbackStore.mediaSession.test.ts
   npm run typecheck
 )
