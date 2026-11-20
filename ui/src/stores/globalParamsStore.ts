@@ -1,3 +1,4 @@
+import { clampSavedBatch, limitBatch } from '../utils/batchLimit.mjs';
 // globalParamsStore.ts -- Zustand store replacing GlobalParamsContext
 //
 // Migrated from React Context + usePersistedState to Zustand with
@@ -302,19 +303,25 @@ export function yue2SamplerSnapshot(): Record<string, number | string> {
 
 function readScoped<T>(base: string, fallback: T, backendId: string = activeBackendId()): T {
   const key = scopedKey(base, backendId);
+  const clamp = (v: T): T => {
+    if (backendId !== 'yue2' || base !== 'hs-backendParams') return v;
+    const next = clampSavedBatch(v);
+    if (next !== v) writeKey(key, next);
+    return next;
+  };
   if (key !== base) {
     try {
       if (localStorage.getItem(key) === null) {
         // First visit to this backend: fork from whatever is in force rather
         // than resetting the user to defaults, and persist it so a later
         // change on the OTHER backend can't drift this one.
-        const seeded = readKey(base, fallback);
+        const seeded = clamp(readKey(base, fallback));
         writeKey(key, seeded);
         return seeded;
       }
     } catch { /* storage blocked -- fall through to the plain read */ }
   }
-  return readKey(key, fallback);
+  return clamp(readKey(key, fallback));
 }
 
 /** Every per-backend field, read for `backendId`. Used for the initial store
@@ -645,6 +652,7 @@ export const useGlobalParamsStore = create<any>()((set, get) => ({
   setGuidanceMode: (v: any) => { set({ guidanceMode: v }); writeKey(scopedKey("hs-guidanceMode"), v); },
   setSeed: (v: any) => { const seed = normalizeSeed(v); set({ seed }); writeKey("hs-seed", seed); },
   setBackendParam: (key: string, v: any) => {
+    if (activeBackendId() === 'yue2' && key === 'yue2BatchSize') v = limitBatch(v);
     const next = { ...(get().backendParams || {}), [key]: v };
     set({ backendParams: next });
     writeKey(scopedKey("hs-backendParams"), next);

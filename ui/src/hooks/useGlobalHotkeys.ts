@@ -23,7 +23,7 @@ export function useGlobalHotkeys(onHelp: () => void, onPalette?: () => void): vo
         onPalette();
         return;
       }
-      if (shouldIgnore({ target: e.target as HTMLElement | null, modalOpen: isModalOpen(), pathname: window.location.pathname })) return;
+      if (shouldIgnore({ target: e.target as HTMLElement | null, modalOpen: isModalOpen(), pathname: (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/") })) return;
       // Let focused buttons and links keep their native Space/Enter behaviour.
       const tag = (e.target as HTMLElement | null)?.tagName;
       if ((action === 'togglePlay' && e.key === ' ' || action === 'playFocused') && (tag === 'BUTTON' || tag === 'A')) return;

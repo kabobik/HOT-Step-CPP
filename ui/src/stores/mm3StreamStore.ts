@@ -448,7 +448,7 @@ async function open(jobId: string, take: number, expected: number, autoPlay: boo
   let chunks = 0, underruns = 0;
 
   try {
-    const url = `/api/generate/mm3/stream/${encodeURIComponent(jobId)}${take > 0 ? `?take=${take}` : ''}`;
+    const url = `/manage/music/api/generate/mm3/stream/${encodeURIComponent(jobId)}${take > 0 ? `?take=${take}` : ''}`;
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok || !res.body) {
       // 409 is the engine declining (not a streaming job, already finished,

@@ -9,8 +9,8 @@ import { apiClient, type ReadOptions } from './httpClient';
 //
 // Communicates with Node server /api/stem-studio endpoints.
 
-const API_BASE = '/api/stem-studio';
-/** Path prefix for apiClient calls (the client already adds `/api`). */
+const API_BASE = '/manage/music/api/stem-studio';
+/** Path prefix for apiClient calls (the client already adds `/manage/music/api`). */
 const P = '/stem-studio';
 
 // ── Types ────────────────────────────────────────────────────────────────

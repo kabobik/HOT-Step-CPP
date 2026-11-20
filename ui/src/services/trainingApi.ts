@@ -35,8 +35,8 @@ export interface TrainingTarget { worker?: string | null; silent?: boolean }
 export interface TrainingReadOptions extends TrainingTarget, ReadOptions {}
 
 const WORKER_KEY = 'hotstep.trainingWorker';
-const LOCAL_BASE = '/api/training';
-const workerBase = (name: string | null) => name ? `/api/workers/${encodeURIComponent(name)}/api/training` : LOCAL_BASE;
+const LOCAL_BASE = '/manage/music/api/training';
+const workerBase = (name: string | null) => name ? `/manage/music/api/workers/${encodeURIComponent(name)}/api/training` : LOCAL_BASE;
 let trainingWorker: string | null = (() => { try { return localStorage.getItem(WORKER_KEY) || null; } catch { return null; } })();
 let API_BASE = workerBase(trainingWorker);
 /** The base for a captured worker, or the current selection when undefined. */
@@ -3411,7 +3411,7 @@ export interface WorkerDispatch { worker: string; family?: 'yue2' | 'mm3'; batch
 async function workersRequest<T>(path: string, init?: TrainingInit, opts?: ReadOptions): Promise<T> {
   const { method, body } = initToArgs(init);
   return apiClient.request<T>(method, path, body, {
-    signal: opts?.signal, timeout: init?.timeout, baseURL: '/api/workers', silent: init?.silent,
+    signal: opts?.signal, timeout: init?.timeout, baseURL: '/manage/music/api/workers', silent: init?.silent,
   });
 }
 export async function listTrainingWorkers(reqOpts?: ReadOptions): Promise<TrainingWorkerStatus[]> {

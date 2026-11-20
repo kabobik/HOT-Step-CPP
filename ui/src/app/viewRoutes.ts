@@ -1,7 +1,7 @@
 // viewRoutes.ts — the URL <-> view-name mapping App uses for routing.
 
 /** Derive top-level view from the browser URL */
-export function viewFromUrl(path = window.location.pathname): string {
+export function viewFromUrl(path = (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/")): string {
   if (path.startsWith('/insta-gen')) return 'insta-gen';
   if (path.startsWith('/lyric-studio')) return 'lyric-studio';
   if (path.startsWith('/cover-studio')) return 'cover-studio';

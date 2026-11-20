@@ -1,3 +1,6 @@
+import { prepareYue2Edit, isEditRestoring } from './utils/editReplay.mjs';
+import { useBackendStore } from './stores/backendStore';
+import { GLOBAL_PARAM_DEFAULTS, useGlobalParamsStore } from './stores/globalParamsStore';
 // App.tsx — Root application component
 //
 // Ported from hot-step-9000: 3-panel resizable layout with
@@ -350,13 +353,13 @@ const AppContent: React.FC = () => {
       if (checking) return;
       checking = true;
       try {
-        const res = await fetch('/api/health', { signal: AbortSignal.timeout(2000) });
+        const res = await fetch('/manage/music/api/health', { signal: AbortSignal.timeout(2000) });
         if (!res.ok && !disposed) setIsOffline(true);
       } catch {
         if (!disposed) setIsOffline(true);
       } finally { checking = false; }
     };
-    const unsubscribe = subscribeEventSource('/api/logs', { error: () => void confirmOffline() }, { reconnect: true });
+    const unsubscribe = subscribeEventSource('/manage/music/api/logs', { error: () => void confirmOffline() }, { reconnect: true });
     return () => { disposed = true; unsubscribe(); };
   }, []);
 
@@ -380,15 +383,15 @@ const AppContent: React.FC = () => {
   const navigateTo = useCallback((view: string) => {
     // Save deep Lyric Studio URL before leaving so we can restore it
     if (activeView === 'lyric-studio' && view !== 'lyric-studio') {
-      try { localStorage.setItem('hs-lastLyricStudioUrl', window.location.pathname); } catch { /* ignore */ }
+      try { localStorage.setItem('hs-lastLyricStudioUrl', (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/")); } catch { /* ignore */ }
     }
     // Same idea for Training Studio: dataset/phase deep link.
     if (activeView === 'training-studio' && view !== 'training-studio') {
-      try { localStorage.setItem('hs-lastTrainingStudioUrl', window.location.pathname); } catch { /* ignore */ }
+      try { localStorage.setItem('hs-lastTrainingStudioUrl', (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/")); } catch { /* ignore */ }
     }
     setActiveView(view);
     const url = urlForView(view);
-    if (window.location.pathname !== url) {
+    if ((window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/") !== url) {
       window.history.pushState(null, '', url);
     }
   }, [activeView]);
@@ -416,7 +419,7 @@ const AppContent: React.FC = () => {
           <span className="break-all">{t('download.savedTo', 'Saved to {{path}}', { path })}</span>
           <button
             className="self-start text-sm font-medium text-pink-500 hover:text-pink-400 underline"
-            onClick={() => { void fetch('/api/download/reveal', {
+            onClick={() => { void fetch('/manage/music/api/download/reveal', {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }),
             }); }}
           >
@@ -594,7 +597,7 @@ const AppContent: React.FC = () => {
   // view: songs may have changed while this tab could not hear about it. The
   // log lines themselves are not parsed here.
   useEffect(() => bridgeEvents(queryClient, {
-    url: '/api/logs',
+    url: '/manage/music/api/logs',
     reconnect: true,
     parse: () => undefined,
     map: () => undefined,
@@ -625,6 +628,7 @@ const AppContent: React.FC = () => {
 
   // Handle generation — merges content params (from CreatePanel) with global engine params (from context)
   const handleGenerate = useCallback((contentParams: Partial<GenerationParams>, contentIntent?: CreateIntent) => {
+    if (isEditRestoring()) { notify('Дождись восстановления настроек трека.', 'warning'); return; }
     if (!token) return;
     // First Generate click is a user gesture: ask once for done notifications.
     void requestNotifyPermissionFromGesture();
@@ -739,8 +743,13 @@ const AppContent: React.FC = () => {
 
   // Reuse handler
   const [reuseData, setReuseData] = useState<{ song: Song; timestamp: number } | null>(null);
-  const handleReuse = useCallback((song: Song) => {
-    setReuseData({ song, timestamp: Date.now() });
+  const handleReuse = useCallback(async (song: Song) => {
+    const restored = await prepareYue2Edit(song, {
+      backendStore: useBackendStore, paramsStore: useGlobalParamsStore,
+      defaults: GLOBAL_PARAM_DEFAULTS, notify,
+    });
+    if (!restored) return;
+    setReuseData({ song: restored, timestamp: Date.now() });
     navigateTo('create');
   }, [navigateTo]);
 
@@ -1112,7 +1121,7 @@ const AppContent: React.FC = () => {
               onCompare={(ids) => { setPendingCompareSongs(ids); navigateTo('compare-studio'); }}
               onExportZip={async (ids) => {
                 try {
-                  const res = await fetch('/api/songs/export-zip', {
+                  const res = await fetch('/manage/music/api/songs/export-zip', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                     body: JSON.stringify({ ids }),

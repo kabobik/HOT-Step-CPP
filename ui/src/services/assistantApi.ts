@@ -44,7 +44,7 @@ export function chatStream(
 
   (async () => {
     try {
-      const res = await fetch('/api/assistant/chat', {
+      const res = await fetch('/manage/music/api/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),

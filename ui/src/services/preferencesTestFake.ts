@@ -72,7 +72,7 @@ export class PreferencesFake {
   }
 
   private answer(c: Call, u: URL): [number, unknown] {
-    if (u.pathname === '/api/vst/chain') { if (c.method === 'PUT' || c.method === 'POST') this.chain = c.body?.plugins ?? c.body; return [200, { plugins: this.chain }]; }
+    if (u.pathname === '/manage/music/api/vst/chain') { if (c.method === 'PUT' || c.method === 'POST') this.chain = c.body?.plugins ?? c.body; return [200, { plugins: this.chain }]; }
     const m = u.pathname.match(/^\/api\/preferences\/(presets|settings)\/([a-z0-9-]+)(?:\/([^/]+))?$/);
     if (!m) return [404, { error: `No route ${c.method} ${c.path}` }];
     const [, area, family, rest] = m;

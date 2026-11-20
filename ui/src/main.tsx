@@ -31,9 +31,4 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Installable PWA: app-shell service worker, production builds only.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.warn('[sw] register failed', err));
-  });
-}
+// Hosted inside Bobik: do not register a root-scoped service worker.

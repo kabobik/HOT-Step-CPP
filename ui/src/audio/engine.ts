@@ -347,13 +347,15 @@ export function setVariant(variant: Variant): void {
  *  decision just loses the error. */
 export async function play(): Promise<boolean> {
   const a = element();
+  const token = loadToken;
   // Our own AudioContext is in the path now, and a suspended one is silence
   // however healthy the element looks.
   pitchResume();
   try {
     await a.play();
-    return true;
+    return token === loadToken;
   } catch (err) {
+    if (token !== loadToken) return false;
     const name = (err as Error)?.name;
     if (name === 'AbortError') return false;   // superseded by another load
     state.error = name === 'NotAllowedError'

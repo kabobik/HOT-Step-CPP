@@ -141,7 +141,7 @@ export async function downloadTrackVersion(
   options?: { artistName?: string; prepend?: string },
 ): Promise<void> {
   const params = buildDownloadParams(song, version, readSettings(), options);
-  await triggerDownload(`/api/download/${song.id}?${params}`);
+  await triggerDownload(`/manage/music/api/download/${song.id}?${params}`);
 }
 
 /**
@@ -162,20 +162,20 @@ export async function downloadTrack(
   // Determine which audio version(s) to download
   const versionPref = settings.downloadVersion;
   if (versionPref === 'both' && hasMastered) {
-    await triggerDownload(`/api/download/${song.id}?${buildParams('original')}`);
+    await triggerDownload(`/manage/music/api/download/${song.id}?${buildParams('original')}`);
     await delay(500);
-    await triggerDownload(`/api/download/${song.id}?${buildParams('mastered')}`);
+    await triggerDownload(`/manage/music/api/download/${song.id}?${buildParams('mastered')}`);
   } else if (versionPref === 'mastered' && hasMastered) {
-    await triggerDownload(`/api/download/${song.id}?${buildParams('mastered')}`);
+    await triggerDownload(`/manage/music/api/download/${song.id}?${buildParams('mastered')}`);
   } else {
-    await triggerDownload(`/api/download/${song.id}?${buildParams('original')}`);
+    await triggerDownload(`/manage/music/api/download/${song.id}?${buildParams('original')}`);
   }
 
   // Latent download — if enabled and the song has a latent file
   if (settings.downloadIncludeLatent && (song.latentUrl || song.latent_url)) {
     await delay(500);
     const latentParams = new URLSearchParams({ version: 'latent' });
-    await triggerDownload(`/api/download/${song.id}?${latentParams}`);
+    await triggerDownload(`/manage/music/api/download/${song.id}?${latentParams}`);
   }
 }
 
@@ -205,7 +205,7 @@ export async function downloadLyricsLrc(
     ...(artist ? { artist } : {}),
     ...(prepend ? { prepend } : {}),
   });
-  await triggerDownload(`/api/download/${song.id}/lrc?${params}`);
+  await triggerDownload(`/manage/music/api/download/${song.id}/lrc?${params}`);
 }
 
 /**
@@ -223,7 +223,7 @@ export async function downloadLyricsLrcForAudio(audioUrl: string, songId?: strin
     ...(audioUrl ? { audioUrl } : {}),
     ...(prepend ? { prepend } : {}),
   });
-  await triggerDownload(`/api/download/${songId || '_'}/lrc?${params}`);
+  await triggerDownload(`/manage/music/api/download/${songId || '_'}/lrc?${params}`);
 }
 
 /**

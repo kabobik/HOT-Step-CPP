@@ -10,7 +10,7 @@ import { getSessionEpoch } from '../queries/keys';
 
 async function request<T>(url: string, method = 'GET', body?: unknown, options: ClientOptions = {}): Promise<T> {
   const target = { session: getSessionEpoch(), api: apiClient.baseUrl };
-  const path = url.replace(/^\/api/, '');
+  const path = url.replace(/^\/manage\/music\/api/, '');
   if (method === 'GET') return readSnapshot<T>('drafts', path, options);
   // POST/PUT writes are silent: every caller renders its own inline error —
   // the draft mirror's onError line and the playlist store's saveError status.
@@ -24,7 +24,7 @@ async function request<T>(url: string, method = 'GET', body?: unknown, options: 
   return result;
 }
 
-const path = '/api/studio-drafts';
+const path = '/manage/music/api/studio-drafts';
 const id = (value: string) => encodeURIComponent(value);
 export type PlaylistDocument = TypedDocument<PlaylistBody>;
 export type StudioDraftDocument = TypedDocument<StudioDraftBody>;

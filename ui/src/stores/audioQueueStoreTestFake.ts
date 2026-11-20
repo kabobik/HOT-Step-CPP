@@ -91,8 +91,8 @@ export class AudioQueueApiFake {
   }
 
   private answer(c: Call): Response {
-    if (c.path === '/api/audio-queue/items' && c.method === 'GET') return json(200, { items: this.serverItems });
-    if (c.path === '/api/audio-queue/migration/import') {
+    if (c.path === '/manage/music/api/audio-queue/items' && c.method === 'GET') return json(200, { items: this.serverItems });
+    if (c.path === '/manage/music/api/audio-queue/migration/import') {
       const { backupId, items } = c.body as { backupId: string; items: { legacyId: string; status: string }[] };
       const cached = this.receiptsByBackupId.get(backupId);
       if (cached) return json(200, cached);
@@ -107,7 +107,7 @@ export class AudioQueueApiFake {
       this.receiptsByBackupId.set(backupId, receipt);
       return json(200, receipt);
     }
-    if (c.path === '/api/audio-queue/migration/rollback-export') {
+    if (c.path === '/manage/music/api/audio-queue/migration/rollback-export') {
       this.rollbackCalls++;
       // Same order as the real route (routes/audioQueue.ts): pause first, then
       // refuse while a submission is in flight.

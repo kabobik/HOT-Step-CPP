@@ -115,7 +115,7 @@ export function useStreamAudio(streamId = 'default') {
     rafRef.current = requestAnimationFrame(tick);
 
     try {
-      const res = await fetch('/api/generate/storm/stream', {
+      const res = await fetch('/manage/music/api/generate/storm/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...params, streamId }),

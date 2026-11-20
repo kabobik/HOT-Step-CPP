@@ -29,7 +29,7 @@ import type {
 import { apiClient, ApiError, HttpStatus, type ClientOptions, type ReadOptions } from './httpClient';
 import { SLOW_ROUTE_TIMEOUT_MS } from './axiosClient';
 
-const BASE = '/api';
+const BASE = '/manage/music/api';
 
 // get/post/patch/del delegate to the shared client (httpClient.ts) — same
 // signatures and error shape (ApiError, a plain Error subclass with status +

@@ -13,7 +13,7 @@ export type { Sa3PreviewListResponse, Sa3PreviewRecord, Sa3PreviewRenderRequest,
 
 export interface Sa3PreviewTarget extends ReadOptions { worker: string | null }
 
-const base = (worker: string | null) => worker ? `/api/workers/${encodeURIComponent(worker)}/api/training` : '/api/training';
+const base = (worker: string | null) => worker ? `/manage/music/api/workers/${encodeURIComponent(worker)}/api/training` : '/manage/music/api/training';
 const path = (datasetId: string) => `/datasets/${encodeURIComponent(datasetId)}/sa3-previews`;
 
 export function listSa3Previews(datasetId: string, run: string, target: Sa3PreviewTarget): Promise<Sa3PreviewListResponse> {

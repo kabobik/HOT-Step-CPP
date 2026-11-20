@@ -17,7 +17,7 @@ export function useServerHealthReload(startDelayMs: number, onWaiting?: () => vo
         if (checking) return;
         checking = true;
         try {
-          const res = await fetch('/api/health', { signal: AbortSignal.timeout(2000) });
+          const res = await fetch('/manage/music/api/health', { signal: AbortSignal.timeout(2000) });
           if (res.ok && !cancelled) {
             window.clearInterval(poll);
             onReconnected?.();

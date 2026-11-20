@@ -338,7 +338,7 @@ export const GlobalParamBar: React.FC<{ onOpenMobileNav?: () => void; onOpenMobi
         >
           <Menu size={20} />
         </button>
-        <img src="/logo.webp" alt="HOT-Step" style={{ height: '28px' }} className="w-auto object-contain" draggable={false} />
+        <img src="/manage/music/logo.webp" alt="HOT-Step" style={{ height: '28px' }} className="w-auto object-contain" draggable={false} />
         <div className="flex-1" />
         <button
           onClick={onOpenMobilePlaylist}
@@ -367,7 +367,7 @@ export const GlobalParamBar: React.FC<{ onOpenMobileNav?: () => void; onOpenMobi
       <div className="flex max-[1023px]:hidden portrait:hidden items-stretch">
         {/* Logo */}
         <div className="flex items-center justify-center flex-shrink-0 border-r border-zinc-200 dark:border-white/5" style={{ width: '199px', backgroundColor: '#000' }}>
-          <img src="/logo.webp" alt="HOT-Step" style={{ width: '140px' }} className="h-auto object-contain" draggable={false} />
+          <img src="/manage/music/logo.webp" alt="HOT-Step" style={{ width: '140px' }} className="h-auto object-contain" draggable={false} />
         </div>
 
         {/* Sections — separated by dividers */}

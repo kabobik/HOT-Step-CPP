@@ -99,7 +99,7 @@ const LogLineItem = React.memo<{
 LogLineItem.displayName = 'LogLineItem';
 
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({ onClose, embedded = false }) => {
-  const { lines, connected, clear } = useEventSource('/api/logs', true);
+  const { lines, connected, clear } = useEventSource('/manage/music/api/logs', true);
   const [search, setSearch] = useState('');
   const [streamTab, setStreamTab] = useState('all');
   const scrollRef = useRef<HTMLDivElement>(null);

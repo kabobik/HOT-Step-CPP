@@ -59,8 +59,8 @@ export const SEPARATION_LEVELS: { value: SeparationLevel; label: string; descrip
   },
 ];
 
-const API_BASE = '/api/supersep';
-/** Path prefix for apiClient calls (the client already adds `/api`). */
+const API_BASE = '/manage/music/api/supersep';
+/** Path prefix for apiClient calls (the client already adds `/manage/music/api`). */
 const P = '/supersep';
 
 /** Start a separation job. Returns the job ID. Silent: CoverStudio's

@@ -390,12 +390,23 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
     const gpData = reuseData.song.generationParams;
     if (!gpData) return;
     const yue2Reuse = (reuseData.song.backend ?? gpData.backend) === YUE2_BACKEND_ID;
+    if (yue2Reuse) {
+      setCaption(gpData.caption ?? reuseData.song.style ?? '');
+      setLyrics(gpData.lyrics ?? reuseData.song.lyrics ?? '');
+      setInstrumental(gpData.instrumental ?? false);
+      setArtist(gpData.artist ?? ''); setSubject(gpData.subject ?? '');
+      setBpm(gpData.bpm ?? 0); setKeyScale(gpData.keyScale ?? '');
+      setTimeSignature(gpData.timeSignature ?? '');
+      setDuration(Number(gpData.duration ?? -1)); setVocalLanguage(gpData.vocalLanguage ?? 'en');
+      setNegativePrompt(gpData.negative_prompt ?? '');
+      setSourceLatentUrl(gpData.sourceLatentUrl ?? '');
+    }
 
     // Style Description field ← user's original style input from generation_params
     // Priority: gpData.caption (original user input) → song.style (DB column)
-    setCaption(gpData.caption || reuseData.song.style || '');
+    setCaption(gpData.caption ?? reuseData.song.style ?? '');
     // Lyrics
-    setLyrics(gpData.lyrics || reuseData.song.lyrics || '');
+    setLyrics(gpData.lyrics ?? reuseData.song.lyrics ?? '');
     if (yue2Reuse && gpData.instrumental !== undefined) setInstrumental(gpData.instrumental);
     // Song info metadata
     if (gpData.title || reuseData.song.title) setTitle(gpData.title || reuseData.song.title || '');
@@ -477,6 +488,13 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
 
   // ── AI generation result handler ──
   const handleAiResult = useCallback((result: AiGenerateResult) => {
+    // A new lyric from the AI is a new composition. An ABC restored by
+    // Edit belongs to the old words and must not silently govern this song.
+    if (activeBackendId === YUE2_BACKEND_ID && result.lyrics?.trim()
+        && result.lyrics.trim() !== lyrics.trim()) {
+      setBackendParamFor(YUE2_BACKEND_ID, 'yue2Abc', '');
+      setBackendParamFor(YUE2_BACKEND_ID, 'yue2ScoreOrigin', 'engine');
+    }
     if (result.caption) setCaption(result.caption);
     if (result.lyrics) setLyrics(result.lyrics);
     if (result.title) setTitle(result.title);
@@ -488,7 +506,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
     if (result.vocalLanguage) setVocalLanguage(result.vocalLanguage);
     // Disable instrumental mode since AI generated lyrics
     setInstrumental(false);
-  }, [setCaption, setLyrics, setTitle, setSubject, setBpm, setKeyScale, setTimeSignature, setDuration, setVocalLanguage, setInstrumental]);
+  }, [setCaption, setLyrics, setTitle, setSubject, setBpm, setKeyScale, setTimeSignature, setDuration, setVocalLanguage, setInstrumental, activeBackendId, lyrics]);
 
   // YuE2 hides auto-expand, the LoRA trigger and Beat I/O (its adapters
   // carry their trigger), so stored values must not ride along unseen.

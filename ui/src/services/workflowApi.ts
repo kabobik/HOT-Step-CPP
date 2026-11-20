@@ -22,14 +22,14 @@ export type {
 
 /** A JSON request that throws ApiError carrying the stale revision or
  *  unsupported-version reason. Shared by the typed-document domain clients,
- *  whose routes live outside /api/workflows. `url` may carry the `/api` base;
+ *  whose routes live outside /api/workflows. `url` may carry the `/manage/music/api` base;
  *  it is stripped because the shared client adds its own. */
 export async function revisionedRequest<T>(url: string, method = 'GET', body?: unknown, opts: ClientOptions = {}): Promise<T> {
-  return apiClient.request<T>(method, url.replace(/^\/api/, ''), body, opts);
+  return apiClient.request<T>(method, url.replace(/^\/manage\/music\/api/, ''), body, opts);
 }
 
 const call = <T>(path: string, method = 'GET', body?: unknown, opts?: ClientOptions): Promise<T> =>
-  revisionedRequest<T>(`/api/workflows${path}`, method, body, opts);
+  revisionedRequest<T>(`/manage/music/api/workflows${path}`, method, body, opts);
 
 const id = (v: string) => encodeURIComponent(v);
 const FINAL = new Set<WorkflowJobStatus>(['succeeded', 'failed', 'cancelled', 'interrupted']);
@@ -74,7 +74,7 @@ export async function followJob(jobId: string, handlers: FollowHandlers,
   while (!opts.signal?.aborted) {
     try {
       const token = getAuthToken();
-      const response = await fetch(`/api/workflows/jobs/${id(jobId)}/events?after=${last}`, {
+      const response = await fetch(`/manage/music/api/workflows/jobs/${id(jobId)}/events?after=${last}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: opts.signal,
       });
       if (!response.ok || !response.body) {

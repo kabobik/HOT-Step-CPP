@@ -34,6 +34,7 @@ import { forgetPeaks } from '../audio/peaksClient';
 import * as engine from '../audio/engine';
 import { endEditGainAt, type EndEdit, type FadeCurve, type FadeKind } from '../../../server/src/contracts/fade';
 import i18n from '../i18n';
+import { notify as toastNotify } from '../components/shared/Toast';
 
 /** VST monitoring and the global player are mutually exclusive — they'd play
  *  two tracks at once. Whenever global playback starts, stop the VST monitor. */
@@ -399,6 +400,17 @@ engine.subscribe(() => {
   // A late notification about a track we have already left.
   if (e.trackId && _state.currentTrack && e.trackId !== _state.currentTrack.id) return;
 
+  // A failed optional render must not discard a playable song.
+  if (e.error && e.variant === 'mastered'
+      && [2, 3, 4].includes(engine.getElement().error?.code ?? 0)) {
+    console.warn(`[Playback] Mastered audio failed; trying original: ${e.trackId}`);
+    cancelAutoAdvance();
+    toastNotify('Обработанная версия недоступна. Воспроизводится оригинал.', 'warning');
+    engine.setVariant('original');
+    void engine.play();
+    return;
+  }
+
   const updates: Partial<PlaybackState> = {
     isPlaying: e.playing,
     isLoading: e.loading,
@@ -421,8 +433,9 @@ engine.subscribe(() => {
   if (e.error && e.trackId && e.trackId !== _reportedErrorFor) {
     _reportedErrorFor = e.trackId;
     console.error(`[Playback] "${_state.currentTrack?.title}": ${e.error}`);
-    // A file that is not there should not hold up a playlist.
-    if (_state.trackList.length > 1) scheduleAutoAdvance('load-error', 500);
+    // Keep the failed selection and explain the failure instead of skipping.
+    cancelAutoAdvance();
+    toastNotify(`Не удалось воспроизвести «${_state.currentTrack?.title ?? ''}»: ${e.error}`, 'error');
   }
 });
 

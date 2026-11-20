@@ -63,7 +63,7 @@ export const SHARED = {
   /** `getYue2PreparationJob(id)`: the chain's current job or null. Local.
    *  Owner: training-data. */
   preparationJob: 'yue2-preparation-job',
-  /** `fetchPeaks`' read of `/audio/peaks?url=<id>`, id = the audio URL as
+  /** `fetchPeaks`' read of `/manage/music/audio/peaks?url=<id>`, id = the audio URL as
    *  played: raw `Peaks` (may carry `unsupported`). Owner: shell-queue. */
   peaks: 'peaks',
   /** `.lrc` sidecar text or null when missing, id = `sidecarUrl(audio, '.lrc')`

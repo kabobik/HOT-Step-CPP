@@ -28,7 +28,7 @@ export interface Peaks {
 const peaksOptions = (url: string) => queryOptions({
   queryKey: sharedKeys.peaks(url),
   queryFn: async ({ signal }) => {
-    const res = await fetch(`/api/audio/peaks?url=${encodeURIComponent(url)}`, { signal, cache: 'no-cache' });
+    const res = await fetch(`/manage/music/api/audio/peaks?url=${encodeURIComponent(url)}`, { signal, cache: 'no-cache' });
     if (!res.ok) throw new ApiError(res.status, `peaks ${res.status} for ${url}`, null);
     return await res.json() as Peaks;
   },

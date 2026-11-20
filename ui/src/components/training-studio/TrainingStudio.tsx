@@ -103,7 +103,7 @@ export const TrainingStudio: React.FC = () => {
 
   // Initial load: adopt whatever dataset/phase the URL names.
   useEffect(() => {
-    const parsed = parseTrainingUrl(window.location.pathname);
+    const parsed = parseTrainingUrl((window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/"));
     if (parsed.phase === 'monitor') {
       setPhase('monitor');
       return;
@@ -127,13 +127,13 @@ export const TrainingStudio: React.FC = () => {
   useEffect(() => {
     if (isRestoringUrl.current) return;
     const url = buildTrainingUrl(selectedDatasetId, phase);
-    if (window.location.pathname !== url) window.history.pushState({}, '', url);
+    if ((window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/") !== url) window.history.pushState({}, '', url);
   }, [selectedDatasetId, phase]);
 
   // Browser back/forward.
   useEffect(() => {
     const handlePopState = () => {
-      const parsed = parseTrainingUrl(window.location.pathname);
+      const parsed = parseTrainingUrl((window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/"));
       isRestoringUrl.current = true;
       (async () => {
         try {

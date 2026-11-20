@@ -18,7 +18,7 @@ export type PresetFamily = 'vst-chain' | 'ai-continue-style' | 'ai-continue-lyri
 export type SettingsFamily = 'ai-continue-template' | 'storm-tuning' | 'sheet-transcriber' | 'yue2-tokenizer';
 
 async function request<T>(url: string, method = 'GET', body?: unknown, opts: ReadOptions = {}): Promise<T> {
-  return apiClient.request<T>(method, url.replace(/^\/api/, ''), body, opts);
+  return apiClient.request<T>(method, url.replace(/^\/manage\/music\/api/, ''), body, opts);
 }
 
 const id = (v: string) => encodeURIComponent(v);
@@ -34,24 +34,24 @@ export const preferencesApi = {
   presets: {
     resolveYue2Joint: <T extends object>(preset: { name: string; version?: 1 | 2; settings: object }, currentForm: T, lyricTiming: boolean) =>
       request<{ result: Omit<ResolveYue2PresetResult, 'effectiveForm'> & { effectiveForm: T } }>(
-        '/api/preferences/presets/yue2-joint/resolve', 'POST', { preset, currentForm, lyricTiming }),
+        '/manage/music/api/preferences/presets/yue2-joint/resolve', 'POST', { preset, currentForm, lyricTiming }),
     list: <T>(family: PresetFamily, opts?: ReadOptions) =>
-      request<{ documents: TypedDocument<T>[] }>(`/api/preferences/presets/${family}`, 'GET', undefined, opts),
-    create: <T>(family: PresetFamily, body: T) => request<{ document: TypedDocument<T> }>(`/api/preferences/presets/${family}`, 'POST', { body }),
+      request<{ documents: TypedDocument<T>[] }>(`/manage/music/api/preferences/presets/${family}`, 'GET', undefined, opts),
+    create: <T>(family: PresetFamily, body: T) => request<{ document: TypedDocument<T> }>(`/manage/music/api/preferences/presets/${family}`, 'POST', { body }),
     update: <T>(family: PresetFamily, docId: string, expectedRevision: number, body: T) =>
-      request<{ document: TypedDocument<T> }>(`/api/preferences/presets/${family}/${id(docId)}`, 'PUT', { expectedRevision, body }),
+      request<{ document: TypedDocument<T> }>(`/manage/music/api/preferences/presets/${family}/${id(docId)}`, 'PUT', { expectedRevision, body }),
     remove: (family: PresetFamily, docId: string, expectedRevision: number) =>
-      request<{ removed: true }>(`/api/preferences/presets/${family}/${id(docId)}?expectedRevision=${expectedRevision}`, 'DELETE'),
+      request<{ removed: true }>(`/manage/music/api/preferences/presets/${family}/${id(docId)}?expectedRevision=${expectedRevision}`, 'DELETE'),
     import: (family: PresetFamily, items: ImportPreferenceItem[]) =>
-      request<{ results: ImportPreferenceResult[] }>(`/api/preferences/presets/${family}/import`, 'POST', { items }),
+      request<{ results: ImportPreferenceResult[] }>(`/manage/music/api/preferences/presets/${family}/import`, 'POST', { items }),
   },
   settings: {
     get: <T>(family: SettingsFamily, opts?: ReadOptions) =>
-      request<{ document: TypedDocument<T> | null }>(`/api/preferences/settings/${family}`, 'GET', undefined, opts),
+      request<{ document: TypedDocument<T> | null }>(`/manage/music/api/preferences/settings/${family}`, 'GET', undefined, opts),
     upsert: <T>(family: SettingsFamily, expectedRevision: number | undefined, body: T) =>
-      request<{ document: TypedDocument<T> }>(`/api/preferences/settings/${family}`, 'PUT', { expectedRevision, body }),
+      request<{ document: TypedDocument<T> }>(`/manage/music/api/preferences/settings/${family}`, 'PUT', { expectedRevision, body }),
     import: (family: SettingsFamily, item: ImportPreferenceItem) =>
-      request<{ results: ImportPreferenceResult[] }>(`/api/preferences/settings/${family}/import`, 'POST', { items: [item] })
+      request<{ results: ImportPreferenceResult[] }>(`/manage/music/api/preferences/settings/${family}/import`, 'POST', { items: [item] })
         .then(({ results }) => results[0]!),
   },
 };

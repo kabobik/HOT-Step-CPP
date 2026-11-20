@@ -42,6 +42,7 @@ const closeWithUpstream: ProxyOptions['configure'] = (proxy) => {
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: "/manage/music/",
   plugins: [react(), appShellWorker()],
   server: {
     port: 3000,

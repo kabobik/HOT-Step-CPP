@@ -236,7 +236,7 @@ async function fetchAdapter(config: InternalAxiosRequestConfig): Promise<AxiosRe
 // ---------------------------------------------------------------------------
 
 export const http = axios.create({
-  baseURL: '/api',
+  baseURL: '/manage/music/api',
   timeout: DEFAULT_TIMEOUT_MS,
   // Stringify in the adapter instead, so the wire bytes (and its exact
   // 'application/json' content type) match the old fetch transport.

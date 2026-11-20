@@ -220,7 +220,7 @@ export const LyricStudioV2: React.FC = () => {
   const showToast = notify;
 
   // ── Initial artwork + URL restore from the artists observer ──
-  const initialLoad = useRef({ path: window.location.pathname, artworkStarted: false, restored: false });
+  const initialLoad = useRef({ path: (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/"), artworkStarted: false, restored: false });
   useEffect(() => {
     const artistsList = artistsQuery.data;
     if (!artistsList || initialLoad.current.restored) return;
@@ -231,7 +231,7 @@ export const LyricStudioV2: React.FC = () => {
     let live = true;
     const initialPath = initialLoad.current.path;
     const init = async () => {
-      if (!live || initialPath !== window.location.pathname) return;
+      if (!live || initialPath !== (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/")) return;
       const parsed = parseUrl(initialPath);
       if (parsed.artistId) {
         isRestoringUrl.current = true;
@@ -242,7 +242,7 @@ export const LyricStudioV2: React.FC = () => {
             return;
           }
           const albumRes = await lireekApi.listLyricsSets(artist.id);
-          if (!live || initialPath !== window.location.pathname) return;
+          if (!live || initialPath !== (window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/")) return;
           initialLoad.current.restored = true;
 
           if (parsed.albumId) {
@@ -283,7 +283,7 @@ export const LyricStudioV2: React.FC = () => {
   const pushUrl = useCallback((artistId?: number, albumId?: number, tab?: TabId) => {
     if (isRestoringUrl.current) return;
     const url = buildUrl(artistId, albumId, tab);
-    if (window.location.pathname !== url) window.history.pushState({}, '', url);
+    if ((window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/") !== url) window.history.pushState({}, '', url);
   }, []);
 
   const handleSelectArtist = useCallback((artist: Artist) => {
@@ -331,7 +331,7 @@ export const LyricStudioV2: React.FC = () => {
   // ── popstate ──
   useEffect(() => {
     const handlePopState = async () => {
-      const parsed = parseUrl(window.location.pathname);
+      const parsed = parseUrl((window.location.pathname.replace(/^\/manage\/music(?=\/|$)/, "") || "/"));
       if (!parsed.artistId) {
         setNav({ level: 'artists', selectedArtist: null, selectedAlbum: null });
          setSongCount(0);

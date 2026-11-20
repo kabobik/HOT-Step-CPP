@@ -100,7 +100,7 @@ export const CuratedProfileModal: React.FC<CuratedProfileModalProps> = ({
       // server (llmRoutes.ts, '/artists/:id/curated-profile(-stream)'). Note
       // the path below does not match that stub; when the backend lands, point
       // this at the -stream route under the artist id.
-      const res = await fetch('/api/lireek/curated-profile', {
+      const res = await fetch('/manage/music/api/lireek/curated-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

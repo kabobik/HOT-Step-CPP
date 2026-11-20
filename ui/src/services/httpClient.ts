@@ -40,7 +40,7 @@ export interface ReadOptions {
 
 export interface ApiClientConfig {
   baseUrl?: string;
-  /** Root for `mediaUrl()` — `/audio` and `/references` src attributes.
+  /** Root for `mediaUrl()` — `/manage/music/audio` and `/manage/music/references` src attributes.
    *  Defaults to '' (same origin as the page), which is what the Vite dev
    *  proxy and the prod server both want today. A client built for a
    *  separate frontend origin (a future remote/phone client) sets this to
@@ -70,7 +70,7 @@ export class ApiClient {
   private readonly base: string;
   private readonly mediaRoot: string;
   constructor(opts: ApiClientConfig = {}) {
-    this.base = opts.baseUrl ?? '/api';
+    this.base = opts.baseUrl ?? '/manage/music/api';
     this.mediaRoot = opts.mediaRoot ?? '';
   }
 
@@ -226,15 +226,15 @@ export class ApiClient {
     }
   }
 
-  /** A `/audio` or `/references` URL for `<audio>`/`<img>` src. Relative to
+  /** A `/manage/music/audio` or `/manage/music/references` URL for `<audio>`/`<img>` src. Relative to
    *  `mediaRoot` (default '', same origin as the page) rather than this
    *  client's JSON `base` — a remote frontend origin configures `mediaRoot`
-   *  separately, since media is served outside `/api`. */
+   *  separately, since media is served outside `/manage/music/api`. */
   mediaUrl(path: string): string {
     if (path.startsWith('http')) return path;
     return `${this.mediaRoot}${path.startsWith('/') ? path : `/${path}`}`;
   }
 }
 
-/** The default client, base `/api` — what api.ts and most callers want. */
+/** The default client, base `/manage/music/api` — what api.ts and most callers want. */
 export const apiClient = new ApiClient();

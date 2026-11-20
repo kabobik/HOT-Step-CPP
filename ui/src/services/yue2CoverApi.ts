@@ -6,7 +6,7 @@ import { getSessionEpoch } from '../queries/keys';
 import type { PrepareV2 } from '../utils/yue2Prepare';
 import type { CoverLeadSheetSource, CoverLeadSheetResult } from '../../../server/src/contracts/studioWorkflows';
 // Authenticated YuE2 cover transcription endpoints.
-const BASE = '/api/yue2-cover';
+const BASE = '/manage/music/api/yue2-cover';
 
 export interface Yue2CoverSourceInput {
   sourceAudioUrl?: string;
@@ -206,7 +206,7 @@ export interface Yue2BuildSession {
 
 async function request<T>(path: string, init?: RequestInit, clientOpts?: ClientOptions): Promise<T> {
   const target = { session: getSessionEpoch(), api: apiClient.baseUrl };
-  const url = `${BASE}${path}`.replace(/^\/api/, '');
+  const url = `${BASE}${path}`.replace(/^\/manage\/music\/api/, '');
   if (!init?.method || init.method === 'GET') return readSnapshot<T>('cover', url, { signal: init?.signal ?? undefined }, /\/(build|transcriptions)\//.test(path) ? 0 : undefined);
   const opts = { signal: init.signal ?? undefined, ...clientOpts };
   const body = init.body ? JSON.parse(String(init.body)) : undefined;
@@ -239,9 +239,9 @@ export const yue2CoverApi = {
    *  before a section, the last bar). Fails (422) on anything it cannot convert exactly. */
   // Silent: CoverStudio renders the remeter failure itself (its inline line).
   remeterScore: (abc: string, pickup: boolean) =>
-    apiClient.post<{ abc: string; twoFourBars: number }>(`${BASE}/score/remeter`.replace(/^\/api/, ''), { abc, pickup }, { silent: true }),
+    apiClient.post<{ abc: string; twoFourBars: number }>(`${BASE}/score/remeter`.replace(/^\/manage\/music\/api/, ''), { abc, pickup }, { silent: true }),
   shiftBars: (abc: string, beats: number) =>
-    apiClient.post<{ abc: string }>(`${BASE}/score/shift-bars`.replace(/^\/api/, ''), { abc, beats }, { silent: true }),
+    apiClient.post<{ abc: string }>(`${BASE}/score/shift-bars`.replace(/^\/manage\/music\/api/, ''), { abc, beats }, { silent: true }),
   matchSections: (input: Yue2CoverSourceInput & { abc: string; lyrics: string }) =>
     request<Yue2SectionMatch>('/sections/match', { method: 'POST', body: JSON.stringify(input) }),
   // All the build commands are silent: Yue2Build renders their failure in its own error line.

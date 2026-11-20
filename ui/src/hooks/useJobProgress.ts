@@ -37,7 +37,7 @@ export function useJobBadge(): string | null {
 
 async function showDoneNotification(title: string, body: string, songId?: string): Promise<void> {
   if (!notificationsSupported() || Notification.permission !== 'granted') return;
-  const options: NotificationOptions = { body, icon: '/logo.webp', tag: songId ? `song-${songId}` : undefined, data: { songId } };
+  const options: NotificationOptions = { body, icon: '/manage/music/logo.webp', tag: songId ? `song-${songId}` : undefined, data: { songId } };
   try {
     const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
     if (reg) { await reg.showNotification(title, options); return; }

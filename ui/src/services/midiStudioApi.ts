@@ -4,8 +4,8 @@ import { apiClient, type ReadOptions } from './httpClient';
 // Communicates with Node server /api/midi-studio endpoints, which run the
 // native ace-midi engine (MuScriptor by Kyutai & Mirelo, Beat This! by CPJKU).
 
-const API_BASE = '/api/midi-studio';
-/** Path prefix for apiClient calls (the client already adds `/api`). */
+const API_BASE = '/manage/music/api/midi-studio';
+/** Path prefix for apiClient calls (the client already adds `/manage/music/api`). */
 const P = '/midi-studio';
 
 // ── Types ────────────────────────────────────────────────────────────────
