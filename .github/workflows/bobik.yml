@@ -1,0 +1,24 @@
+name: Bobik source build
+on:
+  push:
+    branches: [bobik/main]
+  pull_request:
+    branches: [bobik/main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web-and-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - run: npm ci --prefix server --no-audit --no-fund
+      - run: npm ci --prefix ui --no-audit --no-fund
+      - run: npm ci --prefix release --no-audit --no-fund
+      - run: bash tools/bobik/check.sh

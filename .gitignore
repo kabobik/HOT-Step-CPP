@@ -78,6 +78,7 @@ models/onnx/dit-stream/
 
 # Downloaded tools (whisper.cpp, etc.)
 tools/*
+!tools/bobik/
 !tools/update-gate/
 !tools/mm3-refiner/
 tools/mm3-refiner/artifacts/
@@ -176,7 +177,6 @@ release/staging/
 release/out/
 release/.node-cache/
 release/node_modules/
-release/package-lock.json
 release-staging/
 runtime/
 *.tar.gz
