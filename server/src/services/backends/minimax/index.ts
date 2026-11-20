@@ -322,7 +322,9 @@ async function capabilities(): Promise<BackendCapabilities> {
       sampleRate: 44100,
       propsStale: stale,
       modelsMissing,
-      modelsMissingHint: 'both GGUFs (~24 GB)',
+      modelsMissingHint: process.env.BOBIK_MM3_OFFICIAL_URL
+        ? 'GGUF weights. Choose MiniMax-Music3 · Official in the engine selector'
+        : 'both GGUFs (~24 GB)',
       // TensorRT DiT renderer availability (docs/plans/2026-09-11-mm3-trt-dit-shipping.md).
       // Passed through verbatim so the Renderer row in BackendModelsDropdown —
       // the same place that used to read this off the (now-removed) Generation
@@ -935,7 +937,7 @@ async function selectModel(selection: Record<string, string>) {
 
 export const minimaxBackend: EngineBackend = {
   id: 'minimax-m3',
-  displayName: 'MiniMax-Music3',   // license-mandated exact string — see header
+  displayName: 'MiniMax-Music3 · GGUF',   // license-mandated exact string — see header
   resourcePool: 'gpu',
   lifecycle: {
     // MM3 has no process of its own: it is a model family inside ace-server.

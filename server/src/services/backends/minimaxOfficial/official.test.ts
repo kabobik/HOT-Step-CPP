@@ -38,3 +38,19 @@ test('cancellation during submit retains id and waits for child exit acknowledge
     server.closeAllConnections(); await new Promise<void>(r => server.close(() => r()));
   }
 });
+
+
+test('official seeds match the panel uint64 contract without rounding or truncation', () => {
+  const base = { caption: 'Russian rock', lyrics: '[Verse] Снег' };
+  for (const seed of [0, 2147483648, 4294967295, Number.MAX_SAFE_INTEGER,
+    '9007199254740992', '16302813008879570944', '18446744073709551615']) {
+    assert.equal(mapOfficialRequest({ ...base, seed }).seed, seed);
+    assert.equal(mapOfficialRequest({ ...base, seed, randomSeed: true }).seed, undefined);
+  }
+  assert.equal(mapOfficialRequest({ ...base, seed: '4294967295' }).seed, 4294967295);
+  assert.equal(mapOfficialRequest({ ...base, seed: '-1' }).seed, undefined);
+  for (const seed of [-2, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1,
+    '18446744073709551616', '-2', '1e5', '', null, true]) {
+    assert.throws(() => mapOfficialRequest({ ...base, seed }));
+  }
+});

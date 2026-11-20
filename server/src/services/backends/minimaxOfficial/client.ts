@@ -15,7 +15,7 @@ export async function cancelOfficial(id: string): Promise<void> {
 export interface OfficialStatus {
   status: 'running' | 'done' | 'cancelled' | 'failed'; stage?: string;
   frames?: number; cap_frames?: number; error?: string;
-  result?: Record<string, unknown> & { duration: number; total_ms: number; seed: number };
+  result?: Record<string, unknown> & { duration: number; total_ms: number; seed: number | string };
 }
 /** The initial POST is deliberately not aborted: retain its id, then cancel and await exit. */
 export async function renderOfficial(body: object, signal: AbortSignal, onStatus: (s: OfficialStatus) => void): Promise<{ audio: Buffer; detail: OfficialStatus }> {

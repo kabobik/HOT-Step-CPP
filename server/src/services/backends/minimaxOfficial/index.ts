@@ -37,7 +37,7 @@ export const minimaxOfficialBackend: EngineBackend = {
   resolveRequest(submission) {
     const wire = mapOfficialRequest(submission);
     return { operation: 'text2music', common: { caption: wire.caption, lyrics: wire.lyrics, duration: wire.duration,
-      ...(wire.seed === undefined ? {} : { seed: wire.seed }), batchSize: 1 },
+      ...(typeof wire.seed === 'number' ? { seed: wire.seed } : {}), batchSize: 1 },
       models: { model: 'MiniMaxAI/MiniMax-Music3', revision: MODEL_REVISION },
       options: { ...wire }, policy: { retry: { maxAttempts: 1, reseedOnRetry: false }, timeoutMinutes: 180 } };
   },
