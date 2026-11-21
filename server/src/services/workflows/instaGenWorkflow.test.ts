@@ -174,3 +174,34 @@ test('cancelling a direct render cancels its queued audio and discards its resul
   assert.equal(s.jobs.get(job.id).status, 'cancelled');
   assert.equal(s.jobs.get(job.id).result, null);
 });
+
+
+test('old tabs and saved previews cannot reuse another song score in Insta-Gen', async () => {
+  const s = setup();
+  s.switchBackend('yue2');
+  const leaked = { ...input, expectedBackend: 'yue2', engineParams: {
+    seed: 1071388449, yue2Abc: 'old score', yue2NoiseSeed: 2698143498,
+    yue2ScoreOrigin: 'supplied', yue2ScoreLyrics: 'old words',
+    yue2Cover: { sourceId: 'old song' }, yue2Continuation: { sourceId: 'old song' },
+    yue2OdeSteps: 64, yue2Cot: 'full', yue2LyricSchedule: 'bias',
+  } };
+  const direct = s.submit('insta-direct', 'fresh-direct', leaked);
+  await s.jobs.settled();
+  assert.equal(s.jobs.get(direct.job.id).status, 'succeeded');
+  const doc = s.documents.create('u', 'insta-preview', {
+    input: leaked, result, edits: { lyrics: 'New Russian lyrics', caption: 'rock' },
+  });
+  const approval = s.submit('insta-approve', 'fresh-approval', { documentId: doc.id, revision: doc.revision });
+  await s.jobs.settled();
+  assert.equal(s.jobs.get(approval.job.id).status, 'succeeded');
+  assert.equal(s.items.size, 2);
+  for (const { request } of s.items.values()) {
+    for (const key of ['yue2Abc', 'yue2NoiseSeed', 'yue2ScoreOrigin', 'yue2ScoreLyrics', 'yue2Cover', 'yue2Continuation']) {
+      assert.equal(key in request, false, key);
+    }
+    assert.equal(request.seed, leaked.engineParams.seed);
+    assert.equal(request.yue2OdeSteps, 64);
+    assert.equal(request.yue2LyricSchedule, 'bias');
+  }
+  assert.equal(leaked.engineParams.yue2Abc, 'old score', 'saved document remains immutable');
+});

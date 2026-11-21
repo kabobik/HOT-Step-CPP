@@ -1098,8 +1098,8 @@ async function capabilities(): Promise<BackendCapabilities> {
         section_hint: 'Render from your own ABC lead sheet instead of letting the planner write one.',
         label: 'Lead sheet (ABC)',
         hint: 'Optional. Paste ABC notation, or drop an .abc file on the box, and the song is '
-            + 'rendered from this score instead of one the planner composes. It stays set for '
-            + 'every generation until you clear it. Needs Chain of Thought melody or full, and '
+            + 'rendered from this score instead of one the planner composes. Applies to Create '
+            + 'with the current lyrics; changing lyrics clears it. Insta-Gen plans a new score. Needs Chain of Thought melody or full, and '
             + 'it replaces the score preview, since there is nothing left to plan.',
         default: '',
         visible_when: { key: 'yue2Cot', not_equals: 'off' },

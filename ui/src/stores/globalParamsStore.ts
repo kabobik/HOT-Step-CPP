@@ -12,6 +12,7 @@ import type { GenerationParams, LmRepMode, StableStepBackend, StableStepBlendMod
 import { DEFAULT_SETTINGS, type AppSettings } from '../components/settings/SettingsPanel';
 import { useBackendStore } from './backendStore';
 import { normalizeSeed, type Seed } from '../utils/seed';
+import { withoutYue2SongState } from '../../../server/src/contracts/yue2SongState';
 
 const STRING_SEED_BACKENDS = new Set(['heartmula', 'yue2', 'minimax-official']);
 import { apiClient } from '../services/httpClient';
@@ -286,6 +287,15 @@ export function scopedKey(base: string, backendId: string = activeBackendId()): 
 export function setBackendParamFor(backendId: string, key: string, v: unknown): void {
   if (activeBackendId() === backendId) { useGlobalParamsStore.getState().setBackendParam(key, v); return; }
   writeKey(scopedKey('hs-backendParams', backendId), { ...readScoped<Record<string, unknown>>('hs-backendParams', {}, backendId), [key]: v });
+}
+
+export function clearYue2SongState(): void {
+  const key = scopedKey('hs-backendParams', 'yue2');
+  const current = activeBackendId() === 'yue2' ? useGlobalParamsStore.getState().backendParams
+    : readScoped<Record<string, unknown>>('hs-backendParams', {}, 'yue2');
+  const next = withoutYue2SongState(current ?? {});
+  if (activeBackendId() === 'yue2') useGlobalParamsStore.setState({ backendParams: next });
+  writeKey(key, next);
 }
 
 /** The YuE2 LM tab's planner/composer sampler settings and CFG, whichever
@@ -654,6 +664,13 @@ export const useGlobalParamsStore = create<any>()((set, get) => ({
   setBackendParam: (key: string, v: any) => {
     if (activeBackendId() === 'yue2' && key === 'yue2BatchSize') v = limitBatch(v);
     const next = { ...(get().backendParams || {}), [key]: v };
+    // Pasting a lead sheet is explicit Create content. Bind it to the current
+    // words; Edit supplies its restored lyrics after restoring the whole bag.
+    if (activeBackendId() === 'yue2' && key === 'yue2Abc') {
+      next.yue2ScoreLyrics = readKey('hs-instrumental', false) ? '[Instrumental]' : readKey('hs-lyrics', '');
+      next.yue2NoiseSeed = undefined;
+      next.yue2ScoreOrigin = v ? 'supplied' : 'engine';
+    }
     set({ backendParams: next });
     writeKey(scopedKey("hs-backendParams"), next);
   },
@@ -888,7 +905,7 @@ export const useGlobalParamsStore = create<any>()((set, get) => ({
       // the core params. Spread FIRST on purpose: later properties win in an
       // object literal, so a backend can never shadow a core field by picking a
       // colliding key.
-      ...(s.backendParams || {}),
+      ...withoutYue2SongState(s.backendParams || {}),
       ...(backendState.activeBackendId === 'heartmula' ? { backendOverride: 'heartmula' } : {}),
       // Freeze component choices with queued requests, including an explicit
       // empty adapter so a later selection cannot change a base-model job.

@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { withoutYue2SongState } from '../../contracts/yue2SongState.js';
 import { getBackend, getActiveBackendId } from '../backends/registry.js';
 import { getProvider } from '../lireek/llm/registry.js';
 import { stripThinkingBlocks, postprocessLyrics, fixSectionLabels, enforceLineCounts, fixAPrefix } from '../lireek/llm/postprocess.js';
@@ -35,7 +36,8 @@ export function effectiveInstaRequest(input: InstaInput, result: InstaResult, ed
   const lyrics = edits?.lyrics ?? result.lyrics;
   const caption = edits?.caption ?? result.caption;
   const request: Record<string, unknown> = {
-    ...input.engineParams,
+    // Also protect old tabs and already saved previews with a leaked score.
+    ...withoutYue2SongState(input.engineParams),
     caption: caption || input.caption,
     lyrics,
     instrumental: input.lyricMode === 'instrumental',

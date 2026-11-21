@@ -27,7 +27,7 @@ import { applyCreateDraft, createContentParams, createYue2Replay, liveBackendRef
 import { useStudioDraftMirror } from '../../services/studioDraftMirror';
 import { StudioDraftPicker } from '../shared/StudioDraftPicker';
 import { useBackendStore } from '../../stores/backendStore';
-import { setBackendParamFor } from '../../stores/globalParamsStore';
+import { setBackendParamFor, clearYue2SongState } from '../../stores/globalParamsStore';
 import { expandWildcards, hasWildcards, randomWildcardSeed } from '../../utils/wildcardUtils';
 import {
   MM3_CAPTION_SOURCES_KEY, clearMm3CaptionSources, pickNearestBpmTrack,
@@ -54,6 +54,7 @@ import { ParamLabel } from '../shared/ParamLabel';
 import { writePersistedState } from '../../hooks/usePersistedState';
 import type { GenerationParams, Song } from '../../types';
 import type { CreateIntent } from '../../../../server/src/contracts/resolution';
+import { yue2SongStateForLyrics } from '../../../../server/src/contracts/yue2SongState';
 
 const NO_DATASETS: TrainingDatasetSummary[] = [];
 
@@ -364,7 +365,17 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
     if (selection && typeof selection === 'object') setYue2Selection(selection as Yue2CaptionSelection);
   }, [yue2Ds.datasetId]);
   const yue2PreviewScore = useGlobalParamsStore((s: any) => !!s.backendParams?.yue2PreviewScore);
-  const yue2AbcSupplied = useGlobalParamsStore((s: any) => typeof s.backendParams?.yue2Abc === 'string' && !!s.backendParams.yue2Abc.trim());
+  const yue2SongParams = useGlobalParamsStore(s => s.backendParams);
+  const effectiveLyrics = instrumental ? '[Instrumental]' : lyrics;
+  const yue2AbcSupplied = !!yue2SongStateForLyrics(yue2SongParams ?? {}, effectiveLyrics).yue2Abc;
+  // Manual edits, AI lyrics and drafts all invalidate the old composition.
+  // This effect precedes Edit's restoration, which binds the new snapshot.
+  useEffect(() => {
+    if (!yue2Mode || (!yue2SongParams?.yue2Abc && yue2SongParams?.yue2NoiseSeed == null)) return;
+    if (typeof yue2SongParams.yue2ScoreLyrics === 'string'
+        && yue2SongParams.yue2ScoreLyrics.trim() === effectiveLyrics.trim()) return;
+    clearYue2SongState();
+  }, [yue2Mode, effectiveLyrics, yue2SongParams]);
   const [scorePreview, setScorePreview] = useState<{ open: boolean; params: Partial<GenerationParams> | null; data: Yue2ScorePreviewData | null; error: string | null }>(
     { open: false, params: null, data: null, error: null });
   const planScore = useCallback(async (params: Partial<GenerationParams>, freshSeed: boolean) => {
@@ -458,6 +469,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
       setBackendParamFor(YUE2_BACKEND_ID, 'yue2Abc', scoreOrigin === 'supplied'
         ? gpData.yue2Abc ?? gpData.yue2Request?.abc ?? '' : '');
       setBackendParamFor(YUE2_BACKEND_ID, 'yue2NoiseSeed', gpData.yue2NoiseSeed ?? gpData.yue2Request?.noise_seed ?? gpData.seed);
+      setBackendParamFor(YUE2_BACKEND_ID, 'yue2ScoreLyrics', gpData.instrumental
+        ? '[Instrumental]' : gpData.lyrics ?? reuseData.song.lyrics ?? '');
       setBackendParamFor(YUE2_BACKEND_ID, 'yue2BatchSize', 1);
       setBackendParamFor(YUE2_BACKEND_ID, 'yue2Variations', 1);
       gp.setBatchSize(1);
@@ -488,13 +501,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
 
   // ── AI generation result handler ──
   const handleAiResult = useCallback((result: AiGenerateResult) => {
-    // A new lyric from the AI is a new composition. An ABC restored by
-    // Edit belongs to the old words and must not silently govern this song.
-    if (activeBackendId === YUE2_BACKEND_ID && result.lyrics?.trim()
-        && result.lyrics.trim() !== lyrics.trim()) {
-      setBackendParamFor(YUE2_BACKEND_ID, 'yue2Abc', '');
-      setBackendParamFor(YUE2_BACKEND_ID, 'yue2ScoreOrigin', 'engine');
-    }
     if (result.caption) setCaption(result.caption);
     if (result.lyrics) setLyrics(result.lyrics);
     if (result.title) setTitle(result.title);
@@ -531,6 +537,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({ onGenerate, activeJobC
     }, { mm3Mode, yue2Active: activeBackendId === YUE2_BACKEND_ID,
       durationMax: useBackendStore.getState().capabilities[activeBackendId]?.core.duration.max,
       resolvedCaption, resolvedLyrics });
+    if (yue2Ui) Object.assign(params, yue2SongStateForLyrics(
+      useGlobalParamsStore.getState().backendParams ?? {}, String(params.lyrics ?? '')));
     return params;
   };
   if (paramsRef) paramsRef.current = assembleParams;
