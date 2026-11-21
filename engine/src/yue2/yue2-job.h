@@ -236,6 +236,11 @@ static bool yue2_overlap_ok(Yue2Model & m, const Yue2Request & req, bool evict_s
         *why = "keep models loaded is off";
         return false;
     }
+    const char * tp = std::getenv("YUE2_NAR_TENSOR_PARALLEL");
+    if (tp && std::strcmp(tp, "1") == 0) {
+        *why = "tensor-parallel renderer";
+        return false;
+    }
     if (std::getenv("YUE2_NO_OVERLAP")) {
         *why = "YUE2_NO_OVERLAP is set";
         return false;

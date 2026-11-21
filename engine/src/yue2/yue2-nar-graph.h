@@ -136,6 +136,7 @@ struct Yue2NarVelocityGraph {
     int attn_mask_state = 0;
     ggml_tensor * x_embed_tap = nullptr;
     ggml_tensor * velocity_out = nullptr;
+    ggml_tensor * unconditioned_out = nullptr;
     // CADS conditioning noise (only built when the chunk's cads_strength > 0).
     ggml_tensor * in_cads_zk = nullptr;
     ggml_tensor * in_cads_zv = nullptr;
@@ -167,6 +168,11 @@ struct Yue2NarChunk {
     // carries M on the batch axis, the AR prefix K/V is repeated M times
     // before the concat. state/noise/velocity buffers are [M][chunk_len][64].
     int64_t         n_var = 1;
+    // A packed pair has n_var=1 and concatenates two complete frame sequences.
+    // chunk_len counts content only, nar_length includes BOTH pairs of boundary rows.
+    int64_t second_set = -1;
+    int64_t first_frames = 0;
+    bool compact_plan_cfg = true;  // Set before building the graph.
     mutable Yue2NarVelocityGraph velocity_graph; // serial ODE calls share one shape
     // CADS-style conditioning noise on the AR-prefix K/V (the NAR's plan
     // conditioning). strength 0 builds no extra node (bit-identical output).
@@ -323,6 +329,8 @@ static bool yue2_nar_chunk_bind(Yue2ArKvCache & cache, int64_t set, int64_t chun
     out->cache      = &cache;
     out->set        = set;
     out->n_var      = n_var;
+    out->second_set = -1;
+    out->first_frames = 0;
     return true;
 }
 
@@ -332,6 +340,8 @@ static void yue2_nar_chunk_free(Yue2NarChunk * c) {
     c->cache = nullptr;
     c->set   = 0;
     c->n_var = 1;
+    c->second_set = -1;
+    c->first_frames = 0;
     c->ar_length = c->chunk_len = c->nar_length = 0;
 }
 
@@ -477,6 +487,58 @@ static bool yue2_nar_pos_emb_lookup(const Yue2Model & m, int64_t nar_len, std::v
     return ok;
 }
 
+static ggml_tensor * yue2_nar_attention(ggml_context * ctx, const Yue2LmConfig & c, ggml_tensor * q,
+                                         ggml_tensor * k, ggml_tensor * v, ggml_tensor * ar_k, ggml_tensor * ar_v,
+                                         bool use_flash, ggml_tensor * attn_mask, ggml_tensor * attn_zeros) {
+    const int64_t D = k->ne[0], Nkv = k->ne[1], M = k->ne[3];
+    // [D,Nkv,T,1] -> [D,T,Nkv,1], cast to F16 to match the persistent
+    // AR-prefix cache's own dtype (ggml_concat requires identical types).
+    ggml_tensor * k_w = ggml_cast(ctx, ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3)), GGML_TYPE_F16);
+    ggml_tensor * v_w = ggml_cast(ctx, ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3)), GGML_TYPE_F16);
+
+    // Concat along the sequence axis: AR-prefix K/V is ALREADY post-QK-norm,
+    // post-RoPE (Yue2ArKvCache's own contract, yue2-lm-graph.h) — no
+    // re-rotation happens here, matching nar.py:163 exactly (file header trap).
+    // ar_k/ar_v are [D, ar_length, Nkv, 1]; with M variations the prefix is
+    // repeated on the batch axis first (upstream 2d21090f does the same).
+    if (ar_k && M > 1) {
+        ar_k = ggml_repeat_4d(ctx, ar_k, D, ar_k->ne[1], Nkv, M);
+        ar_v = ggml_repeat_4d(ctx, ar_v, D, ar_v->ne[1], Nkv, M);
+    }
+    ggml_tensor * k_cat = ar_k ? ggml_concat(ctx, ar_k, k_w, 1) : k_w;  // [D, ar_length+T, Nkv, M]
+    ggml_tensor * v_cat = ar_v ? ggml_concat(ctx, ar_v, v_w, 1) : v_w;
+
+    if (attn_mask) {
+        const int64_t pad = attn_mask->ne[0] - k_cat->ne[1];
+        GGML_ASSERT(pad >= 0);
+        if (pad > 0) {
+            GGML_ASSERT(attn_zeros && attn_zeros->ne[1] == pad);
+            ggml_tensor * zeros = M > 1 ? ggml_repeat_4d(ctx, attn_zeros, D, pad, Nkv, M) : attn_zeros;
+            k_cat = ggml_concat(ctx, k_cat, zeros, 1);
+            v_cat = ggml_concat(ctx, v_cat, zeros, 1);
+        }
+    }
+
+    ggml_tensor * q4 = ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));  // [D,T,Nh,M]
+
+    const float   scale = c.softmax_scale;
+    ggml_tensor * attn;
+    if (use_flash) {
+        // The optional mask hides only alignment padding; real tokens remain bidirectional.
+        attn = ggml_flash_attn_ext(ctx, q4, k_cat, v_cat, attn_mask, scale, 0.0f, 0.0f);
+        ggml_prec_set_acc(attn, GGML_PREC_F32);
+    } else {
+        // attn_mask is only non-null here for plan CFG (pad_gqa needs flash).
+        attn = yue2_lm_attn_f32(ctx, q4, k_cat, v_cat, attn_mask, scale);
+    }
+    return attn;
+}
+
+static ggml_tensor * yue2_nar_prefix_view(ggml_context * ctx, ggml_tensor * src, int64_t set, int64_t rows) {
+    return ggml_cont(ctx, ggml_view_4d(ctx, src, src->ne[0], rows, src->ne[2], 1,
+                                       src->nb[1], src->nb[2], src->nb[3], set * src->nb[3]));
+}
+
 // One NAR transformer block (blk.N.nar_* — the independently-trained NAR
 // half, never blk.N.*'s AR weights). Attends over [cached AR-prefix K/V ++
 // this call's fresh NAR K/V], fully bidirectional (see file header).
@@ -485,7 +547,8 @@ static ggml_tensor * yue2_nar_block(ggml_context * ctx, const Yue2LmConfig & c, 
                                     ggml_tensor * h, ggml_tensor * rope_pos, ggml_tensor * ar_k, ggml_tensor * ar_v,
                                     bool use_flash, ggml_tensor * attn_mask = nullptr,
                                     ggml_tensor * attn_zeros = nullptr,
-                                    const Yue2Model * cm = nullptr, int layer = -1) {
+                                    const Yue2Model * cm = nullptr, int layer = -1, int64_t first_tokens = 0,
+                                    ggml_tensor * second_k = nullptr, ggml_tensor * second_v = nullptr) {
     const Yue2AitkLayerWeights * cw = cm && cm->convrot && layer >= 0 ?
         &cm->convrot->nar().layers[(size_t) layer] : nullptr;
     const int64_t H    = (int64_t) c.embedding_length;
@@ -522,45 +585,23 @@ static ggml_tensor * yue2_nar_block(ggml_context * ctx, const Yue2LmConfig & c, 
     k = ggml_rope_ext(ctx, k, rope_pos, NULL, (int) D, GGML_ROPE_TYPE_NEOX, 0, c.rope_freq_base, 1.0f, 0.0f, 1.0f,
                        0.0f, 0.0f);
 
-    // [D,Nkv,T,1] -> [D,T,Nkv,1], cast to F16 to match the persistent
-    // AR-prefix cache's own dtype (ggml_concat requires identical types).
-    ggml_tensor * k_w = ggml_cast(ctx, ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3)), GGML_TYPE_F16);
-    ggml_tensor * v_w = ggml_cast(ctx, ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3)), GGML_TYPE_F16);
-
-    // Concat along the sequence axis: AR-prefix K/V is ALREADY post-QK-norm,
-    // post-RoPE (Yue2ArKvCache's own contract, yue2-lm-graph.h) — no
-    // re-rotation happens here, matching nar.py:163 exactly (file header trap).
-    // ar_k/ar_v are [D, ar_length, Nkv, 1]; with M variations the prefix is
-    // repeated on the batch axis first (upstream 2d21090f does the same).
-    if (M > 1) {
-        ar_k = ggml_repeat_4d(ctx, ar_k, D, ar_k->ne[1], Nkv, M);
-        ar_v = ggml_repeat_4d(ctx, ar_v, D, ar_v->ne[1], Nkv, M);
-    }
-    ggml_tensor * k_cat = ggml_concat(ctx, ar_k, k_w, 1);  // [D, ar_length+T, Nkv, M]
-    ggml_tensor * v_cat = ggml_concat(ctx, ar_v, v_w, 1);
-
-    if (attn_mask) {
-        const int64_t pad = attn_mask->ne[0] - k_cat->ne[1];
-        GGML_ASSERT(pad >= 0);
-        if (pad > 0) {
-            GGML_ASSERT(attn_zeros && attn_zeros->ne[1] == pad);
-            ggml_tensor * zeros = M > 1 ? ggml_repeat_4d(ctx, attn_zeros, D, pad, Nkv, M) : attn_zeros;
-            k_cat = ggml_concat(ctx, k_cat, zeros, 1);
-            v_cat = ggml_concat(ctx, v_cat, zeros, 1);
-        }
-    }
-
-    ggml_tensor * q4 = ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));  // [D,T,Nh,M]
-
-    const float   scale = c.softmax_scale;
     ggml_tensor * attn;
-    if (use_flash) {
-        // The optional mask hides only alignment padding; real tokens remain bidirectional.
-        attn = ggml_flash_attn_ext(ctx, q4, k_cat, v_cat, attn_mask, scale, 0.0f, 0.0f);
-        ggml_prec_set_acc(attn, GGML_PREC_F32);
+    if (second_k) {
+        // All projections see the sum of both token counts. Attention sees two
+        // disjoint ranges, each with its own two boundaries and sealed prefix.
+        auto attend = [&](int64_t start, int64_t length, ggml_tensor * ak, ggml_tensor * av) {
+            auto slice = [&](ggml_tensor * x) {
+                return ggml_view_4d(ctx, x, D, x->ne[1], length, 1, x->nb[1], x->nb[2],
+                                    x->nb[3], start * x->nb[2]);
+            };
+            return yue2_nar_attention(ctx, c, slice(q), slice(k), slice(v), ak, av, use_flash,
+                                      nullptr, nullptr);
+        };
+        ggml_tensor * first = attend(0, first_tokens, ar_k, ar_v);
+        ggml_tensor * second = attend(first_tokens, T - first_tokens, second_k, second_v);
+        attn = ggml_concat(ctx, first, second, 2);
     } else {
-        // attn_mask is only non-null here for plan CFG (pad_gqa needs flash).
-        attn = yue2_lm_attn_f32(ctx, q4, k_cat, v_cat, attn_mask, scale);
+        attn = yue2_nar_attention(ctx, c, q, k, v, ar_k, ar_v, use_flash, attn_mask, attn_zeros);
     }
     attn = ggml_reshape_3d(ctx, attn, H, T, M);
 
@@ -642,28 +683,40 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
     yue2_nar_time_features(shifted, &time_feat);  // 256 floats
 
     std::vector<float> x_nar_host((size_t) (M * nar_len * LD), 0.0f);  // zero-padded front+back rows, per variation
-    for (int64_t j = 0; j < M; j++) {
-        memcpy(x_nar_host.data() + (size_t) (j * nar_len * LD + LD), state.data() + (size_t) (j * chunk_len * LD),
-               (size_t) (chunk_len * LD) * sizeof(float));
-    }
-
     std::vector<int32_t> local_idx_host((size_t) nar_len);
     std::vector<int32_t> rope_pos_host((size_t) nar_len);
-    const int64_t         max_idx = (int64_t) c.max_latent_frames - 1;
-    for (int64_t t = 0; t < nar_len; t++) {
-        local_idx_host[(size_t) t] = (int32_t) std::min<int64_t>(t, max_idx);
-        rope_pos_host[(size_t) t]  = (int32_t) (ar_length + t);
-    }
     std::vector<int32_t> content_idx_host((size_t) (M * chunk_len));
-    for (int64_t j = 0; j < M; j++) {
-        for (int64_t t = 0; t < chunk_len; t++) {
-            content_idx_host[(size_t) (j * chunk_len + t)] = (int32_t) (t + 1);  // skip the front boundary row
+    const int64_t max_idx = (int64_t) c.max_latent_frames - 1;
+    auto pack = [&](int64_t frame_start, int64_t token_start, int64_t frames, int64_t prefix) {
+        for (int64_t t = 0; t < frames + 2; t++) {
+            local_idx_host[token_start + t] = (int32_t) std::min(t, max_idx);
+            rope_pos_host[token_start + t] = (int32_t) (prefix + t);
         }
+        for (int64_t j = 0; j < M; j++) {
+            memcpy(x_nar_host.data() + (j * nar_len + token_start + 1) * LD,
+                   state.data() + (j * chunk_len + frame_start) * LD, frames * LD * sizeof(float));
+            for (int64_t t = 0; t < frames; t++) {
+                content_idx_host[j * chunk_len + frame_start + t] = (int32_t) (token_start + 1 + t);
+            }
+        }
+    };
+    const bool paired = chunk.second_set >= 0;
+    if (paired) {
+        pack(0, 0, chunk.first_frames, ar_length);
+        pack(chunk.first_frames, chunk.first_frames + 2, chunk_len - chunk.first_frames,
+             chunk.cache->filled[chunk.second_set]);
+    } else {
+        pack(0, 0, chunk_len, ar_length);
     }
 
     // ── compute graph: its shape and model inputs are fixed for this chunk ──
     Yue2NarVelocityGraph & g = chunk.velocity_graph;
     if (!g.gf) {
+    // With a full CFG window both outputs are needed at every time point. The
+    // masked prefix has exactly zero softmax weight. Both branches can share
+    // the input embedding, original global RoPE positions and scratch arena.
+    const bool compact_cfg = chunk.compact_plan_cfg && m.nar_tp && !paired && !pad_gqa && chunk.plan_cfg > 1.0f &&
+                             chunk.plan_cfg_t1 <= 0 && chunk.plan_cfg_t2 >= 1;
     const size_t ctx_bytes =
         ggml_tensor_overhead() * (YUE2_NAR_MAX_NODES + 256) + ggml_graph_overhead_custom(YUE2_NAR_MAX_NODES, false);
     g.gbuf = (uint8_t *) malloc(ctx_bytes);
@@ -706,7 +759,7 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
             ggml_set_name(g.in_attn_zeros, "yue2_nar_padding_zeros");
             ggml_set_input(g.in_attn_zeros);
         }
-    } else if (chunk.plan_cfg > 1.0f) {
+    } else if (chunk.plan_cfg > 1.0f && !compact_cfg) {
         // Plan CFG needs a key mask so the uncond pass can hide the AR prefix
         // (plan) keys entirely. Only built when plan CFG is on, so the
         // plan_cfg=1 graph is unchanged.
@@ -763,7 +816,7 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
         ggml_set_input(g.in_cads_zv);
         ggml_set_input(g.in_cads_coef);
     }
-    if (chunk.plan_w_active || chunk.plan_cfg > 1.0f) {
+    if (chunk.plan_w_active || (chunk.plan_cfg > 1.0f && !compact_cfg)) {
         g.in_plan_w = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 1);
         ggml_set_name(g.in_plan_w, "yue2_nar_plan_w");
         ggml_set_input(g.in_plan_w);
@@ -772,10 +825,15 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
         ggml_tensor * ar_k = kc.k[(size_t) i];
         ggml_tensor * ar_v = kc.v[(size_t) i];
         if (!whole) {
-            ar_k = ggml_cont(ctx, ggml_view_4d(ctx, ar_k, ar_k->ne[0], ar_length, ar_k->ne[2], 1, ar_k->nb[1],
-                                                ar_k->nb[2], ar_k->nb[3], (size_t) chunk.set * ar_k->nb[3]));
-            ar_v = ggml_cont(ctx, ggml_view_4d(ctx, ar_v, ar_v->ne[0], ar_length, ar_v->ne[2], 1, ar_v->nb[1],
-                                                ar_v->nb[2], ar_v->nb[3], (size_t) chunk.set * ar_v->nb[3]));
+            ar_k = yue2_nar_prefix_view(ctx, ar_k, chunk.set, ar_length);
+            ar_v = yue2_nar_prefix_view(ctx, ar_v, chunk.set, ar_length);
+        }
+        ggml_tensor * second_k = nullptr;
+        ggml_tensor * second_v = nullptr;
+        if (paired) {
+            const int64_t rows = kc.filled[chunk.second_set];
+            second_k = yue2_nar_prefix_view(ctx, kc.k[i], chunk.second_set, rows);
+            second_v = yue2_nar_prefix_view(ctx, kc.v[i], chunk.second_set, rows);
         }
         if (g.in_cads_coef) {
             ar_k = yue2_cads_apply(ctx, ar_k, g.in_cads_zk, g.in_cads_coef, chunk.cads_rescale);
@@ -788,22 +846,37 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
             ar_v = ty == GGML_TYPE_F32 ? v32 : ggml_cast(ctx, v32, ty);
         }
         x = yue2_nar_block(ctx, c, m.lm.nar_blk[(size_t) i], x, in_rope_pos, ar_k, ar_v, use_flash,
-                           g.in_attn_mask, g.in_attn_zeros, &m, i);
+                           g.in_attn_mask, g.in_attn_zeros, &m, i, chunk.first_frames + 2, second_k, second_v);
     }
 
-    ggml_tensor * h_final = yue2_lm_rms(ctx, x, m.convrot ? m.convrot->nar().final_norm :
-                                                     m.lm.nar_output_norm, c.rms_eps);
-    ggml_tensor * out_linear = m.convrot ?
-        yue2_convrot_linear(ctx, m.convrot->llm2vae(), h_final) :
-        ggml_mul_mat(ctx, m.lm.llm2vae_w, h_final);
-    ggml_tensor * out_full = ggml_add(ctx, out_linear,
-        yue2_lm_match_type(ctx, out_linear, m.lm.llm2vae_b));
-    ggml_tensor * velocity_out = g.velocity_out = ggml_get_rows(ctx, out_full, in_content_idx);  // [LD, chunk_len, M] — drops both boundary rows
-    ggml_set_name(velocity_out, "yue2_nar_velocity");
-    ggml_set_output(velocity_out);
-    ggml_build_forward_expand(gf, velocity_out);
+    auto output_velocity = [&](ggml_tensor * hidden, const char * name) {
+        ggml_tensor * h_final = yue2_lm_rms(ctx, hidden, m.convrot ? m.convrot->nar().final_norm :
+                                                         m.lm.nar_output_norm, c.rms_eps);
+        ggml_tensor * out_linear = m.convrot ?
+            yue2_convrot_linear(ctx, m.convrot->llm2vae(), h_final) :
+            ggml_mul_mat(ctx, m.lm.llm2vae_w, h_final);
+        ggml_tensor * out_full = ggml_add(ctx, out_linear,
+            yue2_lm_match_type(ctx, out_linear, m.lm.llm2vae_b));
+        ggml_tensor * vel = ggml_get_rows(ctx, out_full, in_content_idx);
+        ggml_set_name(vel, name);
+        ggml_set_output(vel);
+        ggml_build_forward_expand(gf, vel);
+        return vel;
+    };
+    g.velocity_out = output_velocity(x, "yue2_nar_velocity");
+    if (compact_cfg) {
+        ggml_tensor * uncond = g.x_embed_tap;
+        for (int i = 0; i < L; ++i) {
+            uncond = yue2_nar_block(ctx, c, m.lm.nar_blk[i], uncond, in_rope_pos,
+                                    nullptr, nullptr, use_flash, nullptr, nullptr, &m, i);
+        }
+        g.unconditioned_out = output_velocity(uncond, "yue2_nar_velocity_no_plan");
+        fprintf(stderr, "[YuE2-TP] fused CFG graph: %lld prefix keys excluded from the unconditional branch\n",
+                (long long) ar_length);
+    }
 
     BackendPair bp = { yue2_nar_backend(m), m.cpu_backend, strcmp(ggml_backend_name(m.backend), "CPU") != 0 };
+    if (m.nar_tp) bp.backend = m.nar_tp;
     g.sched = backend_sched_new(bp, YUE2_NAR_MAX_NODES);
     if (!g.sched || !ggml_backend_sched_alloc_graph(g.sched, g.gf)) {
         yue2_nar_velocity_graph_free(&g);
@@ -850,7 +923,7 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
         const float w = yue2_plan_w_at(chunk, t_plain);
         ggml_backend_tensor_set(g.in_plan_w, &w, 0, sizeof(float));
     }
-    const bool cfg_on = g.in_plan_w && chunk.plan_cfg > 1.0f &&
+    const bool cfg_on = (g.unconditioned_out || g.in_plan_w) && chunk.plan_cfg > 1.0f &&
                         t_plain >= (double) chunk.plan_cfg_t1 - 1e-7 && t_plain <= (double) chunk.plan_cfg_t2 + 1e-7;
     const int64_t mask_w = g.in_attn_mask ? g.in_attn_mask->ne[0] : 0;
     // uncond = true hides the AR prefix (plan) keys [0, ar_length) with -inf,
@@ -893,16 +966,18 @@ static bool yue2_nar_velocity(const Yue2Model & m, const Yue2NarChunk & chunk, c
             want_input_embedding = false;
         }
         if (cfg_on) {
-            // Unconditional pass: same graph, plan (AR prefix) keys masked to -inf.
-            upload_mask(true);
-            chunk.plan_cfg_uncond_calls++;
-            ok = ggml_backend_sched_graph_compute(g.sched, g.gf) == GGML_STATUS_SUCCESS;
-            if (!ok) {
-                if (err) *err = "YuE2 NAR velocity graph compute failed (plan CFG uncond pass)";
-                return false;
+            auto * vu_tensor = g.unconditioned_out;
+            if (!vu_tensor) {
+                upload_mask(true);
+                if (ggml_backend_sched_graph_compute(g.sched, g.gf) != GGML_STATUS_SUCCESS) {
+                    if (err) *err = "YuE2 NAR velocity graph compute failed (plan CFG uncond pass)";
+                    return false;
+                }
+                vu_tensor = g.velocity_out;
             }
+            chunk.plan_cfg_uncond_calls++;
             std::vector<float> vu(out->velocity.size());
-            ggml_backend_tensor_get(g.velocity_out, vu.data(), 0, vu.size() * sizeof(float));
+            ggml_backend_tensor_get(vu_tensor, vu.data(), 0, vu.size() * sizeof(float));
             const float s = chunk.plan_cfg;
             for (size_t i = 0; i < vu.size(); i++) out->velocity[i] = vu[i] + s * (out->velocity[i] - vu[i]);
             // CFG rescale (Lin et al. 2023, "Common Diffusion Noise Schedules..."):

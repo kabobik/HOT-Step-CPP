@@ -421,6 +421,7 @@ struct Yue2Model {
     bool           backend_ref = false;
     ggml_backend_t backend     = nullptr;
     ggml_backend_t cpu_backend = nullptr;
+    ggml_backend_t nar_tp = nullptr;  // Request-local tensor-parallel NAR backend.
     // Second backend on the same device for the NAR half and the VAE, so a
     // song's render can overlap the next song's composing on another thread
     // (yue2-job.h's NAR lane). nullptr = everything runs on `backend`.
@@ -1390,6 +1391,10 @@ static void yue2_unload(Yue2Model * m) {
     m->companion_path.clear();
     m->lm_adapter_family.clear();
     m->lm_adapter_merged.clear();
+    if (m->nar_tp) {
+        ggml_backend_free(m->nar_tp);
+        m->nar_tp = nullptr;
+    }
     if (m->backend_nar) {
         ggml_backend_free(m->backend_nar);
         m->backend_nar = nullptr;
@@ -1875,7 +1880,7 @@ static bool yue2_load_parts(Yue2Model * m, bool want_ar, bool want_nar, bool wan
                     }
                 }
                 if (ok && need_nar) {
-                    ok = wctx_alloc(&m->wctx_nar, m->backend);
+                    ok = wctx_alloc(&m->wctx_nar, m->nar_tp ? m->nar_tp : m->backend);
                     if (!ok) {
                         errs.push_back("backend buffer allocation failed for the NAR half (out of VRAM?)");
                     }

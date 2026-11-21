@@ -1335,15 +1335,54 @@ static bool yue2_seal_chunks(Yue2Model & m, std::vector<Yue2SongState> & songs, 
     return true;
 }
 
+static void yue2_configure_nar_chunk(Yue2NarChunk & chunk, const Yue2Request & req,
+                                      uint64_t noise_seed, uint64_t frame_start) {
+    auto pf = [&](const char * k, float d) {
+        auto it = req.plugin_params.find(k);
+        if (it == req.plugin_params.end()) return d;
+        try { return std::stof(it->second); } catch (...) { return d; }
+    };
+    chunk.cads_strength = std::clamp(pf("yue2:cads_strength", 0.0f), 0.0f, 1.0f);
+    chunk.cads_t1       = std::clamp(pf("yue2:cads_t1", 0.6f), 0.0f, 1.0f);
+    chunk.cads_t2       = std::clamp(pf("yue2:cads_t2", 0.9f), 0.0f, 1.0f);
+    const auto rs       = req.plugin_params.find("yue2:cads_rescale");
+    chunk.cads_rescale  = rs == req.plugin_params.end() ||
+                          !(rs->second == "0" || rs->second == "false");
+    chunk.plan_w_start  = pf("yue2:plan_w_start", 1.0f);
+    chunk.plan_w_end    = pf("yue2:plan_w_end", 1.0f);
+    const auto pc       = req.plugin_params.find("yue2:plan_w_curve");
+    chunk.plan_cfg      = std::clamp(pf("yue2:plan_cfg", 1.0f), 1.0f, 8.0f);
+    chunk.plan_cfg_t1   = std::clamp(pf("yue2:plan_cfg_t1", 0.0f), 0.0f, 1.0f);
+    chunk.plan_cfg_t2   = std::clamp(pf("yue2:plan_cfg_t2", 1.0f), 0.0f, 1.0f);
+    chunk.plan_cfg_rescale = std::clamp(pf("yue2:plan_cfg_rescale", 0.7f), 0.0f, 1.0f);
+    if (chunk.plan_cfg_t1 > chunk.plan_cfg_t2) {
+        fprintf(stderr, "[YuE2-NAR] WARNING: plan_cfg_t1 %.2f > plan_cfg_t2 %.2f, swapping\n",
+                chunk.plan_cfg_t1, chunk.plan_cfg_t2);
+        std::swap(chunk.plan_cfg_t1, chunk.plan_cfg_t2);
+    }
+    if (chunk.plan_cfg > 1.0f) {
+        fprintf(stderr, "[YuE2-NAR] plan CFG %.2f for t in [%.2f, %.2f], rescale %.2f (2 forwards per velocity call)\n",
+                chunk.plan_cfg, chunk.plan_cfg_t1, chunk.plan_cfg_t2, chunk.plan_cfg_rescale);
+    }
+    chunk.plan_w_cosine = pc != req.plugin_params.end() && pc->second == "cosine";
+    chunk.cads_seed     = (uint64_t) yue2_chunk_solver_seed(
+        noise_seed ^ 0xCAD5CAD5CAD5CAD5ull, frame_start);
+}
+
 // ── Stage 3: NAR (32-step midpoint solve per sealed chunk) ──────────────────
 //
 // The M noise variations of a song solve in one graph (doc 30 #6) unless the
 // ConvRot LM or a Lua solver is in use, which take one variation at a time.
 // Latents come back [song][variation][frames*64].
+// A tensor-parallel backend materializes a one-set prefix on its devices
+// for the current chunk. The sealed source cache remains available for retry.
+using Yue2PrepareNarPrefix = std::function<Yue2ArKvCache *(const Yue2ChunkPlan &)>;
+
 static bool yue2_run_nar_stage(Yue2Model & m, const Yue2Request & req, std::vector<Yue2SongState> & songs,
                                 Yue2ArKvCache & nar_cache, const std::vector<Yue2ChunkPlan> & plan, int n_var,
                                 std::atomic<bool> * cancel, const Yue2ProgressFn & progress,
-                                std::vector<std::vector<std::vector<float>>> * latents_out, std::string * err) {
+                                std::vector<std::vector<std::vector<float>>> * latents_out, std::string * err,
+                                const Yue2PrepareNarPrefix & prepare_prefix = {}) {
     const int64_t LD      = (int64_t) m.lm_cfg.latent_dim;
     const bool    plugins = !(req.nar_solver.empty() && req.nar_scheduler.empty());
     const int     group   = (m.convrot || plugins) ? 1 : n_var;  // variations per graph
@@ -1403,6 +1442,13 @@ static bool yue2_run_nar_stage(Yue2Model & m, const Yue2Request & req, std::vect
         progress({ YUE2_STAGE_NAR, 0, nar_steps_total });
     }
 
+    // A failed shared solve can restart the two chunks from step zero.
+    int64_t reported_steps = 0;
+    auto report_steps = [&](int64_t completed) {
+        reported_steps = std::clamp(completed, reported_steps, nar_steps_total);
+        if (progress) progress({YUE2_STAGE_NAR, reported_steps, nar_steps_total});
+    };
+
     // Plan metadata for Lua plugins (model_context.yue2), parsed once per song.
     std::vector<LuaYue2Plan> plan_info;
     std::vector<int>         chunk_seen((size_t) B, 0), chunk_total((size_t) B, 0);
@@ -1416,13 +1462,84 @@ static bool yue2_run_nar_stage(Yue2Model & m, const Yue2Request & req, std::vect
         for (const auto & cp : plan) chunk_total[(size_t) cp.song]++;
     }
 
+    // Pair corresponding chunks before the original song-major loop. Commit each
+    // pair only after the full solve succeeds, so a fallback uses the same noise.
+    std::vector<bool> solved(plan.size(), false);
+    const char * song_batch = std::getenv("YUE2_NAR_SONG_BATCH");
+    const char * pad_gqa = std::getenv("YUE2_NAR_PAD_GQA");
+    if (!prepare_prefix && B == 2 && n_var == 1 && !plugins && !m.convrot && song_batch && std::strcmp(song_batch, "1") == 0 &&
+        !(pad_gqa && std::strcmp(pad_gqa, "1") == 0) && !g_yue2_imatrix.armed) {
+        std::vector<size_t> indices[2];
+        for (size_t i = 0; i < plan.size(); ++i) indices[plan[i].song].push_back(i);
+        for (size_t i = 0; i < std::min(indices[0].size(), indices[1].size()); ++i) {
+            const Yue2ChunkPlan & a = plan[indices[0][i]], & b = plan[indices[1][i]];
+            if (cancel && cancel->load()) {
+                if (err) *err = "cancelled";
+                return false;
+            }
+            Yue2NarChunk chunk;
+            yue2_configure_nar_chunk(chunk, req, songs[a.song].noise_seed, a.a);
+            // CADS draws and CFG statistics are per song. Use their original
+            // graph for these modes, and for curves which modify the prefix V.
+            if (chunk.cads_strength != 0 || chunk.plan_cfg != 1 ||
+                chunk.plan_w_start != 1 || chunk.plan_w_end != 1) break;
+            const int64_t frames = a.b - a.a + b.b - b.a;
+            if (!yue2_nar_chunk_bind(nar_cache, a.set, frames, 1, &chunk, err)) return false;
+            chunk.second_set = b.set;
+            chunk.first_frames = a.b - a.a;
+            chunk.nar_length = frames + 4;
+            std::vector<float> initial;
+            initial.reserve(frames * LD);
+            for (auto cp : {&a, &b}) {
+                const auto & nz = noise[cp->song][0];
+                initial.insert(initial.end(), nz.begin() + cp->a * LD, nz.begin() + cp->b * LD);
+            }
+            const auto start = std::chrono::steady_clock::now();
+            Yue2NarSolveResult result;
+            auto tick = [&](int step, int) {
+                report_steps(nar_steps_done + 2 * step);
+                return !(cancel && cancel->load());
+            };
+            std::string reason;
+            bool ok = yue2_nar_solve_midpoint(m, chunk, initial, req.ode_steps, {}, false, &result,
+                                               &reason, req.nar_cache_ratio, tick);
+            yue2_nar_chunk_free(&chunk);
+            if (!ok) {
+                if (cancel && cancel->load()) {
+                    if (err) *err = "cancelled";
+                    return false;
+                }
+                fprintf(stderr, "[YuE2-NAR-Pair] sequential fallback: %s\n", reason.c_str());
+                break;
+            }
+            auto split = result.final_latents.begin() + (a.b - a.a) * LD;
+            auto & first = (*latents_out)[a.song][0];
+            auto & second = (*latents_out)[b.song][0];
+            first.insert(first.end(), result.final_latents.begin(), split);
+            second.insert(second.end(), split, result.final_latents.end());
+            solved[indices[0][i]] = solved[indices[1][i]] = true;
+            nar_steps_done += 2 * req.ode_steps;
+            fprintf(stderr, "[YuE2-NAR-Pair] frames=%lld+%lld prefix=%lld+%lld calls=%d solve_ms=%.1f\n",
+                    (long long)(a.b-a.a), (long long)(b.b-b.a), (long long)nar_cache.filled[a.set],
+                    (long long)nar_cache.filled[b.set], result.velocity_calls,
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-start).count());
+        }
+    }
+
     for (size_t ci = 0; ci < plan.size(); ci++) {
+        if (solved[ci]) continue;
         if (cancel && cancel->load()) {
             if (err) *err = "cancelled";
             return false;
         }
         const Yue2ChunkPlan & cp = plan[ci];
         const int64_t chunk_len  = cp.b - cp.a;
+        Yue2ArKvCache * prefix = prepare_prefix ? prepare_prefix(cp) : &nar_cache;
+        if (!prefix) {
+            if (err) *err = "could not allocate the split prefix";
+            return false;
+        }
+        const int64_t prefix_set = prepare_prefix ? 0 : cp.set;
         LuaYue2Plan * chunk_info = nullptr;
         if (plugins) {
             chunk_info = &plan_info[(size_t) cp.song];
@@ -1436,42 +1553,10 @@ static bool yue2_run_nar_stage(Yue2Model & m, const Yue2Request & req, std::vect
         for (int j0 = 0; j0 < n_var; j0 += group) {
             const int M = std::min(group, n_var - j0);
             Yue2NarChunk chunk;
-            if (!yue2_nar_chunk_bind(nar_cache, cp.set, chunk_len, M, &chunk, err)) {
+            if (!yue2_nar_chunk_bind(*prefix, prefix_set, chunk_len, M, &chunk, err)) {
                 return false;
             }
-            // CADS conditioning noise (plugin_params yue2:cads_*); strength 0 = off.
-            {
-                auto pf = [&](const char * k, float d) {
-                    auto it = req.plugin_params.find(k);
-                    if (it == req.plugin_params.end()) return d;
-                    try { return std::stof(it->second); } catch (...) { return d; }
-                };
-                chunk.cads_strength = std::clamp(pf("yue2:cads_strength", 0.0f), 0.0f, 1.0f);
-                chunk.cads_t1       = std::clamp(pf("yue2:cads_t1", 0.6f), 0.0f, 1.0f);
-                chunk.cads_t2       = std::clamp(pf("yue2:cads_t2", 0.9f), 0.0f, 1.0f);
-                const auto rs       = req.plugin_params.find("yue2:cads_rescale");
-                chunk.cads_rescale  = rs == req.plugin_params.end() ||
-                                      !(rs->second == "0" || rs->second == "false");
-                chunk.plan_w_start  = pf("yue2:plan_w_start", 1.0f);
-                chunk.plan_w_end    = pf("yue2:plan_w_end", 1.0f);
-                const auto pc       = req.plugin_params.find("yue2:plan_w_curve");
-                chunk.plan_cfg      = std::clamp(pf("yue2:plan_cfg", 1.0f), 1.0f, 8.0f);
-                chunk.plan_cfg_t1   = std::clamp(pf("yue2:plan_cfg_t1", 0.0f), 0.0f, 1.0f);
-                chunk.plan_cfg_t2   = std::clamp(pf("yue2:plan_cfg_t2", 1.0f), 0.0f, 1.0f);
-                chunk.plan_cfg_rescale = std::clamp(pf("yue2:plan_cfg_rescale", 0.7f), 0.0f, 1.0f);
-                if (chunk.plan_cfg_t1 > chunk.plan_cfg_t2) {
-                    fprintf(stderr, "[YuE2-NAR] WARNING: plan_cfg_t1 %.2f > plan_cfg_t2 %.2f, swapping\n",
-                            chunk.plan_cfg_t1, chunk.plan_cfg_t2);
-                    std::swap(chunk.plan_cfg_t1, chunk.plan_cfg_t2);
-                }
-                if (chunk.plan_cfg > 1.0f) {
-                    fprintf(stderr, "[YuE2-NAR] plan CFG %.2f for t in [%.2f, %.2f], rescale %.2f (2 forwards per velocity call)\n",
-                            chunk.plan_cfg, chunk.plan_cfg_t1, chunk.plan_cfg_t2, chunk.plan_cfg_rescale);
-                }
-                chunk.plan_w_cosine = pc != req.plugin_params.end() && pc->second == "cosine";
-                chunk.cads_seed     = (uint64_t) yue2_chunk_solver_seed(
-                    (songs[(size_t) cp.song].noise_seed + (uint64_t) j0) ^ 0xCAD5CAD5CAD5CAD5ull, (uint64_t) cp.a);
-            }
+            yue2_configure_nar_chunk(chunk, req, songs[cp.song].noise_seed + j0, cp.a);
             std::vector<float> noise_slice;
             noise_slice.reserve((size_t) (M * chunk_len * LD));
             for (int j = j0; j < j0 + M; j++) {
@@ -1487,9 +1572,7 @@ static bool yue2_run_nar_stage(Yue2Model & m, const Yue2Request & req, std::vect
             const Yue2NarStepFn on_step = [&](int step, int) -> bool {
                 if (cancel && cancel->load()) return false;
                 nar_steps_done = steps_before + (int64_t) step;
-                if (progress) {
-                    progress({ YUE2_STAGE_NAR, std::min(nar_steps_done, nar_steps_total), nar_steps_total });
-                }
+                report_steps(nar_steps_done);
                 return true;
             };
             const bool ok = !plugins
@@ -1998,6 +2081,8 @@ static bool yue2_pipeline_run_ar(Yue2Model & m, const BPETokenizer & tok, Yue2Re
 // `load_parts` false means the caller guarantees the NAR half and the VAE are
 // resident and nothing may touch the model's residency here (the overlap
 // lane, where the AR half is composing the next song at the same time).
+#include "yue2-tp.h"
+
 static bool yue2_pipeline_run_nar(Yue2Model & m, const Yue2Request & req, Yue2ArHandoff & ho,
                                    const Yue2ProgressFn & progress, std::atomic<bool> * cancel,
                                    Yue2PipelineResult * out, std::string * err, bool evict_strict = false,
@@ -2013,19 +2098,21 @@ static bool yue2_pipeline_run_nar(Yue2Model & m, const Yue2Request & req, Yue2Ar
     };
 
     // ── NAR half ──
-    if (load_parts) {
-        if (evict_strict) {
-            yue2_evict_half(&m, /*ar=*/true, /*nar=*/false);
-        }
-        if (!yue2_load_parts(&m, /*want_ar=*/false, /*want_nar=*/true, /*want_vae=*/false, req.vae_variant, false, err)) {
+    if (load_parts && evict_strict) yue2_evict_half(&m, /*ar=*/true, /*nar=*/false);
+    std::vector<std::vector<std::vector<float>>> latents;
+    std::string tp_error;
+    if (!yue2_try_tp_nar(m, req, ho, progress, cancel, latents, tp_error)) {
+        if (cancel && cancel->load()) {
+            if (err) *err = "cancelled";
             yue2_handoff_free(&ho);
             return false;
         }
-    }
-    std::vector<std::vector<std::vector<float>>> latents;  // [song][variation][frames*64]
-    if (!yue2_run_nar_stage(m, req, songs, ho.nar_cache, ho.plan, M, cancel, progress, &latents, err)) {
-        yue2_handoff_free(&ho);
-        return false;
+        if (!tp_error.empty()) fprintf(stderr, "[YuE2-TP] one-GPU fallback: %s\n", tp_error.c_str());
+        if ((load_parts && !yue2_load_parts(&m, false, true, false, req.vae_variant, false, err)) ||
+                !yue2_run_nar_stage(m, req, songs, ho.nar_cache, ho.plan, M, cancel, progress, &latents, err)) {
+            yue2_handoff_free(&ho);
+            return false;
+        }
     }
     yue2_ar_kv_cache_free(&ho.nar_cache);
     lap(YUE2_STAGE_NAR);
